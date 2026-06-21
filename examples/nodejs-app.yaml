@@ -1,0 +1,52 @@
+# Example: deploy sfy247-website (Node.js + Express)
+# Usage: helm install sfy247-website ./charts/generic-app -f examples/nodejs-app.yaml -f environments/prod.yaml
+
+image:
+  repository: ghcr.io/sfy247/sfy247-website
+  tag: "latest"
+
+service:
+  port: 80
+  targetPort: 3000
+
+replicaCount: 2
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+env:
+  NODE_ENV: production
+  PORT: "3000"
+
+configMap:
+  enabled: true
+  data:
+    LOG_LEVEL: info
+    CACHE_TTL: "300"
+
+probes:
+  liveness:
+    path: /health
+  readiness:
+    path: /health
+
+ingress:
+  enabled: true
+  className: nginx
+  host: sfy247.example.com
+  tls: true
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

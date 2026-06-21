@@ -1,0 +1,32 @@
+# Example: app with a log-shipping sidecar (e.g. Fluent Bit)
+# Demonstrates the extraContainers / extraVolumes escape hatches
+
+image:
+  repository: ghcr.io/sfy247/my-app
+  tag: "latest"
+
+service:
+  port: 80
+  targetPort: 3000
+
+extraVolumes:
+  - name: logs
+    emptyDir: {}
+
+extraVolumeMounts:
+  - name: logs
+    mountPath: /var/log/app
+
+extraContainers:
+  - name: fluent-bit
+    image: fluent/fluent-bit:2.2
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 50m
+        memory: 64Mi
+    volumeMounts:
+      - name: logs
+        mountPath: /var/log/app

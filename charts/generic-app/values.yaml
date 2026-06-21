@@ -1,0 +1,180 @@
+# ─────────────────────────────────────────────
+# REQUIRED
+# ─────────────────────────────────────────────
+image:
+  repository: ""          # e.g. ghcr.io/sfy247/my-app
+  tag: "latest"
+  pullPolicy: IfNotPresent
+  pullSecrets: []         # list of imagePullSecret names
+
+# ─────────────────────────────────────────────
+# WORKLOAD
+# ─────────────────────────────────────────────
+replicaCount: 1
+
+nameOverride: ""
+fullnameOverride: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+# ─────────────────────────────────────────────
+# SERVICE
+# ─────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 80              # external port exposed by the Service
+  targetPort: 3000      # port your app listens on inside the container
+  annotations: {}
+
+# ─────────────────────────────────────────────
+# INGRESS
+# ─────────────────────────────────────────────
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  host: ""              # e.g. myapp.example.com
+  path: /
+  pathType: Prefix
+  tls: false
+  tlsSecretName: ""
+
+# ─────────────────────────────────────────────
+# RESOURCES
+# ─────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# ─────────────────────────────────────────────
+# AUTOSCALING
+# ─────────────────────────────────────────────
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: ""
+
+# ─────────────────────────────────────────────
+# HEALTH PROBES
+# ─────────────────────────────────────────────
+probes:
+  liveness:
+    enabled: true
+    path: /health
+    port: http
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    failureThreshold: 3
+  readiness:
+    enabled: true
+    path: /health
+    port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    failureThreshold: 3
+
+# ─────────────────────────────────────────────
+# CONFIGURATION
+# ─────────────────────────────────────────────
+# Plain env vars injected into the container
+env: {}
+  # NODE_ENV: production
+  # PORT: "3000"
+
+# Pull env vars from existing ConfigMaps or Secrets
+envFrom: []
+  # - configMapRef:
+  #     name: my-existing-config
+  # - secretRef:
+  #     name: my-existing-secret
+
+# Key/value pairs created as a ConfigMap and injected as env vars
+configMap:
+  enabled: false
+  data: {}
+    # LOG_LEVEL: info
+    # CACHE_TTL: "300"
+
+# ─────────────────────────────────────────────
+# STORAGE
+# ─────────────────────────────────────────────
+persistence:
+  enabled: false
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 1Gi
+  mountPath: /data
+
+# ─────────────────────────────────────────────
+# SERVICE ACCOUNT
+# ─────────────────────────────────────────────
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}   # use for IRSA / Workload Identity
+
+# ─────────────────────────────────────────────
+# POD DISRUPTION BUDGET
+# ─────────────────────────────────────────────
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# ─────────────────────────────────────────────
+# NETWORK POLICY
+# ─────────────────────────────────────────────
+networkPolicy:
+  enabled: false
+  ingressSelectors: []  # list of podSelector / namespaceSelector rules
+
+# ─────────────────────────────────────────────
+# LIFECYCLE & TERMINATION
+# ─────────────────────────────────────────────
+terminationGracePeriodSeconds: 30
+
+lifecycle: {}
+  # preStop:
+  #   exec:
+  #     command: ["/bin/sh", "-c", "sleep 5"]
+
+# ─────────────────────────────────────────────
+# TOPOLOGY / SCHEDULING
+# ─────────────────────────────────────────────
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+topologySpreadConstraints: []
+  # - maxSkew: 1
+  #   topologyKey: topology.kubernetes.io/zone
+  #   whenUnsatisfiable: DoNotSchedule
+  #   labelSelector:
+  #     matchLabels:
+  #       app.kubernetes.io/name: my-app
+
+# ─────────────────────────────────────────────
+# ESCAPE HATCHES
+# ─────────────────────────────────────────────
+extraContainers: []      # sidecar containers
+extraInitContainers: []  # init containers
+extraVolumes: []         # additional volumes
+extraVolumeMounts: []    # additional mounts into the main container
+extraEnv: []             # raw env var objects (for fieldRef, secretKeyRef, etc.)

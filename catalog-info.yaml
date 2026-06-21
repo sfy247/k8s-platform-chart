@@ -1,0 +1,18 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: k8s-platform-chart
+  description: Reusable Kubernetes Helm chart — deploy any containerised app with a single chart
+  tags:
+    - kubernetes
+    - helm
+    - platform
+    - infrastructure
+  annotations:
+    github.com/project-slug: sfy247/k8s-platform-chart
+    backstage.io/techdocs-ref: dir:.
+spec:
+  type: library
+  lifecycle: production
+  owner: group:sfy247-team
+  system: sfy247-platform

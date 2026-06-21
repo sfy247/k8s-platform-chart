@@ -1,0 +1,35 @@
+# Example: deploy python-hello-world
+# Usage: helm install python-hello-world ./charts/generic-app -f examples/python-app.yaml
+
+image:
+  repository: ghcr.io/sfy247/python-hello-world
+  tag: "latest"
+
+service:
+  port: 80
+  targetPort: 8000
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PORT: "8000"
+
+probes:
+  liveness:
+    path: /health
+    initialDelaySeconds: 5
+  readiness:
+    path: /health
+    initialDelaySeconds: 3
+
+ingress:
+  enabled: false

@@ -1,0 +1,7 @@
+# Helm
+charts/*.tgz
+.helm/
+
+# OS
+.DS_Store
+Thumbs.db

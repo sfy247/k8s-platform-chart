@@ -1,0 +1,16 @@
+# Staging environment — mirrors prod config but lower scale
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+podDisruptionBudget:
+  enabled: false
+
+autoscaling:
+  enabled: false

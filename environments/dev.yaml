@@ -1,0 +1,19 @@
+# Dev environment overrides — relaxed limits, single replica, no PDB
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+podDisruptionBudget:
+  enabled: false
+
+autoscaling:
+  enabled: false
+
+ingress:
+  enabled: false
