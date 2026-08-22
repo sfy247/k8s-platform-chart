@@ -1,0 +1,5 @@
+# Registration file for hello-python — read by the lab-apps ApplicationSet.
+# Keep it flat: Argo CD's git generator and the lab scripts both parse it.
+name: hello-python
+namespace: demo
+environment: local

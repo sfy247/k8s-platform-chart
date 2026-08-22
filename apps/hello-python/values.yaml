@@ -1,0 +1,45 @@
+# Helm values for hello-python, layered on top of environments/local.yaml.
+# Everything not set here falls back to charts/generic-app/values.yaml.
+
+# Without this every resource would be named "hello-python-generic-app", because one
+# chart serves every app. Keep it — it is what makes Service/Ingress names read well.
+fullnameOverride: hello-python
+
+image:
+  repository: hello-python
+  tag: "0.1.0"
+
+service:
+  port: 80
+  targetPort: 8000      # the port your process listens on
+
+# Probe paths must exist in your app or pods will never become Ready.
+probes:
+  liveness:
+    path: /healthz
+  readiness:
+    path: /readyz
+
+ingress:
+  enabled: true
+  className: nginx
+  host: hello-python.localtest.me
+
+env:
+  GREETING: "hello"
+  LOG_LEVEL: "INFO"
+  PORT: "8000"
+
+# Surface the pod's own namespace to the app — the pattern for anything the
+# process needs to know about where it is running.
+extraEnv:
+  - name: POD_NAMESPACE
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.namespace
+
+# Common next steps — see charts/generic-app/values.yaml for the full surface:
+#   configMap.enabled            key/value config injected as env vars
+#   persistence.enabled          PVC mounted at persistence.mountPath
+#   autoscaling.enabled          HPA (metrics-server is installed)
+#   extraContainers              sidecars
