@@ -1,0 +1,35 @@
+# Helm values for __NAME__, layered on top of environments/__ENVIRONMENT__.yaml.
+# Everything not set here falls back to charts/generic-app/values.yaml.
+
+# Without this every resource would be named "__NAME__-generic-app", because one
+# chart serves every app. Keep it — it is what makes Service/Ingress names read well.
+fullnameOverride: __NAME__
+
+image:
+  repository: __IMAGE__
+  tag: "__TAG__"
+
+service:
+  port: 80
+  targetPort: __PORT__      # the port your process listens on
+
+# Probe paths must exist in your app or pods will never become Ready.
+probes:
+  liveness:
+    path: /healthz
+  readiness:
+    path: /readyz
+
+ingress:
+  enabled: true
+  className: nginx
+  host: __NAME__.localtest.me
+
+env: {}
+  # LOG_LEVEL: info
+
+# Common next steps — see charts/generic-app/values.yaml for the full surface:
+#   configMap.enabled            key/value config injected as env vars
+#   persistence.enabled          PVC mounted at persistence.mountPath
+#   autoscaling.enabled          HPA (metrics-server is installed)
+#   extraContainers              sidecars

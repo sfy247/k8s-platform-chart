@@ -1,0 +1,57 @@
+# Argo CD for the local lab — deliberately trimmed down.
+#
+# SECURITY NOTE: this configuration is lab-only. TLS is terminated nowhere,
+# the API server runs in insecure mode behind plain HTTP, and the admin
+# account stays enabled. Do not lift this file into a shared environment.
+global:
+  domain: argocd.localtest.me
+
+configs:
+  params:
+    # Serve plain HTTP; ingress-nginx fronts it. Avoids the redirect loop
+    # you get when both Argo and nginx try to terminate TLS.
+    server.insecure: true
+  cm:
+    # Reconcile faster than the 3m default so a `git push` shows up quickly.
+    timeout.reconciliation: 60s
+    # Keep the UI honest about what Argo actually manages.
+    application.resourceTrackingMethod: annotation
+
+server:
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+controller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+repoServer:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+
+applicationSet:
+  enabled: true            # the ApplicationSet controller drives apps/*
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+
+# Not needed for a single-user lab.
+dex:
+  enabled: false
+notifications:
+  enabled: false
+redis:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi

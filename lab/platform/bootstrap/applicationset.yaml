@@ -1,0 +1,64 @@
+# ─────────────────────────────────────────────────────────────────────────
+# The single piece of glue that makes app onboarding a one-directory change.
+#
+# It scans the repo for apps/*/app.yaml and turns each one into an Argo CD
+# Application that renders charts/generic-app with two values layers:
+#
+#     environments/<environment>.yaml   <- shared per-environment policy
+#     apps/<name>/values.yaml           <- the app's own settings
+#
+# So adding an app = two files, no Argo CD boilerplate, no controller change.
+#
+# Applied once by lab/scripts/bootstrap.sh. Argo CD reads from the GIT REMOTE,
+# so new apps go live after `git push` (or immediately via `make deploy`).
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: lab-apps
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]   # a typo in app.yaml fails loudly
+
+  generators:
+    - git:
+        repoURL: https://github.com/sfy247/k8s-platform-chart.git
+        revision: main
+        files:
+          - path: "apps/*/app.yaml"
+
+  template:
+    metadata:
+      name: "{{ .name }}"
+      labels:
+        lab.sfy247.io/environment: "{{ .environment }}"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/sfy247/k8s-platform-chart.git
+        targetRevision: main
+        path: charts/generic-app
+        helm:
+          releaseName: "{{ .name }}"
+          # Paths are relative to the chart directory and resolved inside the
+          # same repo — this is how one chart serves every app.
+          valueFiles:
+            - ../../environments/{{ .environment }}.yaml
+            - ../../apps/{{ .name }}/values.yaml
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{ .namespace }}"
+      syncPolicy:
+        automated:
+          prune: true          # deleting the app dir removes the workload
+          selfHeal: true       # manual kubectl edits get reverted
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

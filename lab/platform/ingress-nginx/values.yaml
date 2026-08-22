@@ -1,0 +1,38 @@
+# ingress-nginx for the local lab.
+# Exposed as a LoadBalancer Service, which k3s ServiceLB (klipper) binds to
+# node ports 80/443; k3d then forwards host 8080/8443 to those.
+controller:
+  replicaCount: 1
+
+  ingressClassResource:
+    name: nginx
+    enabled: true
+    default: true          # charts that omit ingress.className still work
+
+  service:
+    type: LoadBalancer
+
+  # Lab-sized. Requests are what the scheduler reserves; keep them honest.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+  config:
+    # Preserve the original client address through the k3d LB hop.
+    use-forwarded-headers: "true"
+    # Readable access logs while learning; drop to text/JSON as you like.
+    log-format-escape-json: "true"
+
+  admissionWebhooks:
+    enabled: true          # rejects malformed Ingress objects at apply time
+
+  metrics:
+    enabled: false         # no Prometheus in this lab yet
+
+# The lab has no cert-manager, so nothing issues real certs. TLS on an app
+# Ingress will fall back to ingress-nginx's self-signed default certificate.
+defaultBackend:
+  enabled: false
