@@ -157,4 +157,7 @@ file under `lab/platform/` — the same shape as the two add-ons already there.
 | Pod `CreateContainerConfigError` | The chart runs read-only root + non-root uid 1000. Give the app an `extraVolumes` emptyDir (see `apps/podinfo/values.yaml`) |
 | App missing from Argo CD | It only sees pushed commits. `kubectl -n argocd describe applicationset lab-apps` |
 | Ingress rejected: "host and path is already defined" | Two Ingresses claim the same host+path. Usually an app rename — `helm uninstall <app> -n <ns>` first, then deploy |
+| Logs stop arriving; `failed to create fsnotify watcher: too many open files` | Host inotify limits exhausted. `sudo sysctl -w fs.inotify.max_user_instances=512 fs.inotify.max_user_watches=524288` — `make preflight` warns about this |
+| Grafana shows no app in the dropdown | The app has no pods yet, or kube-state-metrics has not scraped it — wait a scrape interval |
+| Prometheus target missing after enabling metrics | `kubectl -n <ns> get servicemonitor` — then check `metrics.path` and that the port name resolves |
 | HPA shows `<unknown>` targets | `kubectl -n kube-system get deploy metrics-server` |

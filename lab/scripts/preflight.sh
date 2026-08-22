@@ -74,4 +74,28 @@ else
   ok "k3d ${K3D_VERSION} installed"
 fi
 
+# ── Host kernel limits ───────────────────────────────────────
+# Every container that watches files consumes an inotify instance. A k3d
+# cluster plus an observability stack burns through the default budget on
+# some distros, and the symptom is obscure: log collectors emit
+# "failed to create fsnotify watcher: too many open files" and silently
+# stop tailing. Warn early rather than debug it later.
+check_sysctl() {
+  local key="$1" want="$2" have
+  have="$(sysctl -n "${key}" 2>/dev/null || echo 0)"
+  if [[ "${have}" -lt "${want}" ]]; then
+    warn "${key} is ${have}, recommended >= ${want}"
+    warn "    sudo sysctl -w ${key}=${want}"
+    warn "    persist: echo '${key} = ${want}' | sudo tee /etc/sysctl.d/99-k3d.conf"
+    return 1
+  fi
+  ok "${key} = ${have}"
+}
+
+log "Checking host kernel limits"
+limits_ok=0
+check_sysctl fs.inotify.max_user_instances 512 || limits_ok=1
+check_sysctl fs.inotify.max_user_watches 524288 || limits_ok=1
+[[ "${limits_ok}" -eq 0 ]] || warn "the lab will still run; raise these if log collection drops out"
+
 log "Preflight complete"
