@@ -30,3 +30,12 @@ def test_readiness_reports_503_before_startup_completes() -> None:
     # No TestClient context manager => lifespan never ran => not ready.
     client = TestClient(app)
     assert client.get("/readyz").status_code == 503
+
+
+def test_metrics_endpoint_exposes_prometheus_format() -> None:
+    with TestClient(app) as client:
+        client.get("/")                      # generate one request to count
+        response = client.get("/metrics")
+    assert response.status_code == 200
+    assert "hello_python_requests_total" in response.text
+    assert "hello_python_request_duration_seconds" in response.text

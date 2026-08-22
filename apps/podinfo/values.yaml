@@ -20,6 +20,12 @@ probes:
   readiness:
     path: /readyz
 
+# podinfo already exposes /metrics on its main port — three lines and it is
+# scraped. Same for any app: no platform change required.
+metrics:
+  enabled: true
+  path: /metrics
+
 ingress:
   enabled: true
   className: nginx

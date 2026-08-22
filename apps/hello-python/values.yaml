@@ -7,7 +7,7 @@ fullnameOverride: hello-python
 
 image:
   repository: hello-python
-  tag: "0.1.0"
+  tag: "0.2.0"
 
 service:
   port: 80
@@ -19,6 +19,12 @@ probes:
     path: /healthz
   readiness:
     path: /readyz
+
+# Application metrics. Three lines — Prometheus discovers the ServiceMonitor
+# on its own. Infrastructure and ingress metrics need nothing at all.
+metrics:
+  enabled: true
+  path: /metrics
 
 ingress:
   enabled: true

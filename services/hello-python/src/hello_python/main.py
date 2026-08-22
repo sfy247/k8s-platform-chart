@@ -22,13 +22,33 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, Response
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 from hello_python import __version__
 from hello_python.config import Settings
 
 HOSTNAME = socket.gethostname()
+
+# ── Metrics ───────────────────────────────────────────────────────────────
+# The ingress already reports request rate, errors and latency for this app
+# without any code. These add what only the app knows: its own view of the
+# request, including the matched route rather than the raw URL.
+#
+# Keep label values BOUNDED. `path` is the route template, never the raw
+# path — /users/12345 as a label value would create a new time series per
+# user and eventually take Prometheus down.
+REQUESTS = Counter(
+    "hello_python_requests_total",
+    "Total HTTP requests handled.",
+    ["method", "path", "status"],
+)
+REQUEST_DURATION = Histogram(
+    "hello_python_request_duration_seconds",
+    "Request duration in seconds.",
+    ["method", "path"],
+)
 
 
 class JsonFormatter(logging.Formatter):
@@ -84,6 +104,22 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="hello-python", version=__version__, lifespan=lifespan)
+
+
+@app.middleware("http")
+async def record_metrics(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """Time every request and count it by route, method and status."""
+    route = request.url.path
+    with REQUEST_DURATION.labels(request.method, route).time():
+        response = await call_next(request)
+    REQUESTS.labels(request.method, route, str(response.status_code)).inc()
+    return response
+
+
+@app.get("/metrics")
+async def metrics() -> Response:
+    """Prometheus scrape endpoint — see metrics.enabled in the app's values."""
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/")

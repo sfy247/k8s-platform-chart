@@ -47,11 +47,19 @@ log "Applying the lab-apps ApplicationSet"
 kubectl apply -f "${LAB_DIR}/platform/bootstrap/applicationset.yaml"
 ok "ApplicationSet applied — watching ${REPO_URL} (${REPO_REVISION}) for apps/*/app.yaml"
 
+# ── Observability ────────────────────────────────────────────
+if [[ "${LAB_SKIP_OBSERVABILITY:-0}" == "1" ]]; then
+  warn "skipping observability (LAB_SKIP_OBSERVABILITY=1)"
+else
+  "${LAB_DIR}/scripts/observability.sh"
+fi
+
 echo
 log "Lab is up"
 cat <<SUMMARY
 
   Argo CD UI     http://argocd.${LAB_DOMAIN}:${LAB_HTTP_PORT}
+  Grafana        http://grafana.${LAB_DOMAIN}:${LAB_HTTP_PORT}   (admin / admin)
   username       admin
   password       make argocd-password
 

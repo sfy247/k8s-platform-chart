@@ -1,0 +1,132 @@
+# Prometheus + Grafana + Alertmanager + kube-state-metrics + node-exporter.
+# Runs in-cluster in the `observability` namespace, watching every namespace.
+
+# ─── Prometheus ───────────────────────────────────────────────
+prometheus:
+  prometheusSpec:
+    retention: 7d
+    retentionSize: 8GB
+
+    # THE reusability switch. By default the operator only picks up
+    # ServiceMonitors/Rules carrying this Helm release's label, which would
+    # mean editing platform config every time an app wants to be scraped.
+    # Setting these to false makes Prometheus discover them in ANY namespace,
+    # so an app enabling metrics is entirely self-service.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeConfigSelectorNilUsesHelmValues: false
+
+    resources:
+      requests:
+        cpu: 200m
+        memory: 768Mi
+      limits:
+        memory: 2Gi
+
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+# ─── Grafana ──────────────────────────────────────────────────
+grafana:
+  enabled: true
+  # Lab-only credentials. Never do this in a shared environment.
+  adminPassword: admin
+
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - grafana.localtest.me
+    path: /
+
+  # Pick up dashboards from ConfigMaps labelled grafana_dashboard, in any
+  # namespace — this is how apps could ship their own dashboard later.
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true
+    datasources:
+      enabled: true
+      searchNamespace: ALL
+
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      url: http://loki.observability.svc.cluster.local:3100
+      jsonData:
+        maxLines: 1000
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+
+  defaultDashboardsTimezone: browser
+
+# ─── Alertmanager ─────────────────────────────────────────────
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 96Mi
+  config:
+    route:
+      group_by: ["namespace", "alertname"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: "null"
+      routes:
+        # Watchdog fires constantly by design — it proves the pipeline works.
+        - matchers: [alertname = "Watchdog"]
+          receiver: "null"
+    receivers:
+      # No external notifications in a lab. Alerts are visible in the UI.
+      # Wire Slack/PagerDuty here when this pattern graduates.
+      - name: "null"
+
+# ─── Cluster metrics sources ──────────────────────────────────
+kube-state-metrics:
+  # By default KSM exports no workload labels at all. Allow-listing the two
+  # labels the generic-app chart always sets makes every app groupable by
+  # name in queries — the basis for one dashboard serving all apps.
+  metricLabelsAllowlist:
+    - pods=[app.kubernetes.io/instance,app.kubernetes.io/name]
+    - deployments=[app.kubernetes.io/instance,app.kubernetes.io/name]
+  resources:
+    requests:
+      cpu: 25m
+      memory: 96Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 25m
+      memory: 48Mi
+
+# k3s runs the control plane inside a single process, so these scrape
+# targets do not exist as separate endpoints. Disabling them avoids a
+# permanent wall of red "target down" in the UI.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false

@@ -1,0 +1,44 @@
+Commands for the team
+
+See the cluster
+kubectl config current-context          # which cluster am I on? (k3d-lab)
+kubectl get nodes                       # the 3 "machines"
+kubectl get pods -A                     # everything running, all namespaces
+kubectl get ns                          # the namespaces and what they're for
+
+Explore the demo app (namespace demo)
+kubectl -n demo get all                 # deployment, replicaset, pod, service
+kubectl -n demo describe pod -l app.kubernetes.io/instance=podinfo
+kubectl -n demo logs -l app.kubernetes.io/instance=podinfo
+kubectl top pods -n demo                # live CPU/memory (metrics-server)
+curl http://podinfo.localtest.me:8090   # hit it from outside
+
+Follow the traffic path — this is the useful mental model
+kubectl get ingress -A                  # 1. hostname -> service
+kubectl -n demo get svc podinfo         # 2. service -> pods
+kubectl -n demo get endpoints podinfo   # 3. which pod IPs it actually routes to
+kubectl -n ingress-nginx get svc        # 4. the controller taking :8090
+
+Break it on purpose (safe, self-healing)
+kubectl -n demo delete pod -l app.kubernetes.io/instance=podinfo
+kubectl -n demo get pods -w             # watch Kubernetes replace it
+kubectl -n demo scale deploy/podinfo --replicas=3
+
+Argo CD
+make argocd-password                    # login: admin
+kubectl -n argocd get applicationset    # the rule that turns apps/* into deployments
+kubectl -n argocd get applications      # empty until the PR merges to main
+kubectl -n argocd describe applicationset lab-apps
+Then open http://argocd.localtest.me:8090 — the UI is the best teaching tool: click an Application to see the resource tree, sync status, and diffs.
+
+Add an app
+make new-app NAME=myapp PORT=3000 IMAGE=ghcr.io/sfy247/myapp
+make deploy APP=myapp                   # try before committing
+
+Lifecycle
+make status        # nodes + apps + ingresses at a glance
+make lab-down      # delete the cluster
+make lab-up        # rebuild from scratch (~4 min)
+
+Full reference with troubleshooting: lab/README.md. Want this as a shareable web page for the team instead of terminal text? Say the word and I'll publish it.
+

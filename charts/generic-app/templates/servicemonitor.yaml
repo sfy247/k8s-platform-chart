@@ -1,0 +1,33 @@
+{{- if .Values.metrics.enabled }}
+{{- /*
+  Prometheus discovers this automatically: the operator is configured with
+  serviceMonitorSelectorNilUsesHelmValues=false, so a ServiceMonitor in any
+  namespace is picked up. Enabling app metrics is therefore self-service —
+  no platform change, no Prometheus config edit.
+*/}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "generic-app.fullname" . }}
+  labels:
+    {{- include "generic-app.labels" . | nindent 4 }}
+    {{- with .Values.metrics.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "generic-app.selectorLabels" . | nindent 6 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  endpoints:
+    - port: {{ if .Values.metrics.port }}metrics{{ else }}http{{ end }}
+      path: {{ .Values.metrics.path }}
+      interval: {{ .Values.metrics.interval }}
+      scrapeTimeout: {{ .Values.metrics.scrapeTimeout }}
+      {{- with .Values.metrics.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

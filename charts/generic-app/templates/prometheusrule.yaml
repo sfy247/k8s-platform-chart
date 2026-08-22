@@ -1,0 +1,19 @@
+{{- if .Values.alerts.enabled }}
+{{- /*
+  Per-app alerts, for thresholds only this app knows about.
+  The platform already alerts on the generic failures — 5xx rate, latency,
+  crash loops, OOMKills, unready deployments — for every app, with no
+  configuration. See lab/platform/observability/rules/.
+*/}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "generic-app.fullname" . }}
+  labels:
+    {{- include "generic-app.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: {{ include "generic-app.fullname" . }}
+      rules:
+        {{- toYaml .Values.alerts.rules | nindent 8 }}
+{{- end }}

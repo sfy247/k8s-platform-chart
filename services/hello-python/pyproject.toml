@@ -1,11 +1,12 @@
 [project]
 name = "hello-python"
-version = "0.1.0"
+version = "0.2.0"
 description = "Hello-world service for the local Kubernetes lab"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
+    "prometheus-client>=0.21",
 ]
 
 [dependency-groups]
