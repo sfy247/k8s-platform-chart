@@ -1,0 +1,39 @@
+# podinfo — the lab's reference app. It proves the whole path end to end:
+# chart -> environment layer -> app values -> Argo CD -> Ingress -> browser.
+# Copy this directory as a starting point for a real app.
+
+# Without this every resource would be named "podinfo-generic-app", because one
+# chart serves every app. Keep it — it is what makes Service/Ingress names read well.
+fullnameOverride: podinfo
+
+image:
+  repository: ghcr.io/stefanprodan/podinfo
+  tag: "6.9.2"
+
+service:
+  port: 80
+  targetPort: 9898
+
+probes:
+  liveness:
+    path: /healthz
+  readiness:
+    path: /readyz
+
+ingress:
+  enabled: true
+  className: nginx
+  host: podinfo.localtest.me
+
+env:
+  PODINFO_UI_COLOR: "#34577c"
+
+# The chart runs containers with a read-only root filesystem. podinfo wants a
+# writable data dir, so hand it an emptyDir instead of weakening the default —
+# this is the pattern to copy when an app needs scratch space.
+extraVolumes:
+  - name: data
+    emptyDir: {}
+extraVolumeMounts:
+  - name: data
+    mountPath: /data

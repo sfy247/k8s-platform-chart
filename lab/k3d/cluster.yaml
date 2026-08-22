@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────────────────────
+# k3d cluster definition for the local lab.
+# Single source of truth for cluster shape — scripts read the name from here.
+#   k3d cluster create --config lab/k3d/cluster.yaml
+# ─────────────────────────────────────────────────────────────
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+
+metadata:
+  name: lab
+
+# 1 server + 2 agents so scheduling, anti-affinity, PDBs and rolling
+# updates behave like a real multi-node cluster instead of a single box.
+servers: 1
+agents: 2
+
+image: rancher/k3s:v1.36.0-k3s1
+
+ports:
+  # Host 8090/8543 -> k3d load balancer -> node ports 80/443, where the
+  # ingress-nginx controller is exposed via k3s ServiceLB (klipper).
+  - port: "8090:80"
+    nodeFilters:
+      - loadbalancer
+  - port: "8543:443"
+    nodeFilters:
+      - loadbalancer
+
+options:
+  k3d:
+    wait: true
+    timeout: "300s"
+  k3s:
+    extraArgs:
+      # Traefik ships with k3s by default. We disable it because the
+      # generic-app chart defaults to ingress.className: nginx, and two
+      # ingress controllers fighting over ports 80/443 is a bad time.
+      - arg: --disable=traefik
+        nodeFilters:
+          - "server:*"
+      # k3s bundles metrics-server; the chart's HPA depends on it, so it
+      # stays enabled and bootstrap.sh verifies it rather than installing
+      # a second copy.
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    switchCurrentContext: true

@@ -1,0 +1,32 @@
+# Local lab (k3d) environment layer — small footprint, ingress on, no HA.
+# Applied under every app's own values by the lab-apps ApplicationSet.
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# One node pool, one replica: a PDB here would only block node drains.
+podDisruptionBudget:
+  enabled: false
+
+# metrics-server is installed, so autoscaling works — apps opt in themselves.
+autoscaling:
+  enabled: false
+
+ingress:
+  className: nginx
+  # No cert-manager in the lab; TLS would fall back to nginx's self-signed cert.
+  tls: false
+
+# Local images built with `make image-import` carry no registry, so never
+# try to pull them from upstream.
+image:
+  pullPolicy: IfNotPresent
+
+# Fail fast while iterating instead of waiting out production grace periods.
+terminationGracePeriodSeconds: 10

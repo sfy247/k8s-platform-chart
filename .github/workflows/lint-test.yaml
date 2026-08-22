@@ -53,3 +53,14 @@ jobs:
             --set persistence.enabled=true \
             --set networkPolicy.enabled=true \
             --set configMap.enabled=true
+
+      - name: Render every app in apps/ against its environment layer
+        run: |
+          for app in apps/*/; do
+            name=$(basename "$app")
+            env=$(sed -n 's/^environment:[[:space:]]*//p' "$app/app.yaml" | head -1)
+            echo "--- $name ($env) ---"
+            helm template "$name" charts/generic-app \
+              -f "environments/$env.yaml" \
+              -f "$app/values.yaml" > /dev/null
+          done
