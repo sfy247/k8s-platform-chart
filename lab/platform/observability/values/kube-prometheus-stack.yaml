@@ -1,5 +1,12 @@
 # Prometheus + Grafana + Alertmanager + kube-state-metrics + node-exporter.
 # Runs in-cluster in the `observability` namespace, watching every namespace.
+# Managed by Argo CD via lab/platform/observability/kube-prometheus-stack/.
+
+# The CRDs are installed by their own Application so they exist before any
+# chart tries to create a ServiceMonitor. Two owners for the same CRDs means
+# permanent sync conflicts.
+crds:
+  enabled: false
 
 # ─── Prometheus ───────────────────────────────────────────────
 prometheus:

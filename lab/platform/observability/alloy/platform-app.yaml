@@ -1,0 +1,8 @@
+# Platform component — read by the lab-platform ApplicationSet.
+# Keep it flat: Argo CD's git generator parses it directly.
+name: alloy
+namespace: observability
+chartRepo: https://grafana.github.io/helm-charts
+chart: alloy
+version: "1.11.1"
+values: lab/platform/observability/values/alloy.yaml

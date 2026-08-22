@@ -1,0 +1,35 @@
+# Alert rules and Grafana dashboards, applied from this repo as plain
+# manifests. Kustomize turns each dashboard JSON into a labelled ConfigMap
+# that the Grafana sidecar picks up.
+#
+# Editing a dashboard or a rule is therefore a git commit, not a kubectl
+# apply — and Argo reverts anyone who edits them in the cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-config
+  namespace: argocd
+  labels:
+    lab.sfy247.io/layer: platform
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/sfy247/k8s-platform-chart.git
+    targetRevision: main
+    path: lab/platform/observability
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m

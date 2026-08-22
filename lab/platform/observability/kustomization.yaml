@@ -1,0 +1,24 @@
+# Rendered by the observability-config Argo CD Application.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: observability
+
+resources:
+  - rules/lab-app-alerts.yaml
+
+# Each dashboard JSON becomes a ConfigMap the Grafana sidecar imports.
+configMapGenerator:
+  - name: grafana-dashboard-app-overview
+    files:
+      - app-overview.json=dashboards/app-overview.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+      annotations:
+        grafana_folder: Lab
+
+generatorOptions:
+  # Stable names: the sidecar tracks ConfigMaps, and a hash suffix would
+  # orphan the old dashboard on every edit.
+  disableNameSuffixHash: true

@@ -17,7 +17,7 @@ CHART   := charts/generic-app
 
 .PHONY: help preflight cluster-up cluster-down lab-up lab-down bootstrap \
         new-app deploy uninstall image-import status sync argocd-password \
-        observability grafana-password \
+        grafana-password platform \
         logs lint template validate
 
 help: ## Show available targets
@@ -30,11 +30,8 @@ preflight: ## Install/verify pinned kubectl, helm, k3d (no sudo, ~/.local/bin)
 cluster-up: preflight ## Create the k3d lab cluster
 	@$(SCRIPTS)/cluster-up.sh
 
-bootstrap: ## Install ingress-nginx + Argo CD + observability + the ApplicationSet
+bootstrap: ## Install Argo CD, then let it install the platform and apps
 	@$(SCRIPTS)/bootstrap.sh
-
-observability: ## Install/upgrade just the observability stack
-	@$(SCRIPTS)/observability.sh
 
 lab-up: cluster-up bootstrap ## Create the cluster and bootstrap the platform
 
@@ -72,11 +69,15 @@ argocd-password: ## Print the Argo CD admin password
 	@kubectl -n argocd get secret argocd-initial-admin-secret \
 	  -o jsonpath='{.data.password}' | base64 -d; echo
 
+platform: ## Show the platform Applications Argo CD manages
+	@kubectl -n argocd get applications -l lab.sfy247.io/layer=platform
+
 status: ## Show cluster, platform and application state
 	@kubectl get nodes
 	@echo; if [ -n "$$(kubectl -n argocd get applications --no-headers 2>/dev/null)" ]; then \
 	  kubectl -n argocd get applications; \
 	else echo "no Argo CD applications yet (apps appear after they are pushed to the remote)"; fi
+	@echo; kubectl get pods -A -o wide --no-headers | awk '{printf "%-16s %-52s %s\n",$$1,$$2,$$4}' | sort
 	@echo; kubectl get ingress -A
 
 logs: ## Tail an app's logs: make logs APP=myapp [NAMESPACE=demo]

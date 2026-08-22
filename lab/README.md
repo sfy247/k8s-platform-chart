@@ -10,10 +10,11 @@ is a two-file change. Built for `charts/generic-app`.
   k3d cluster "lab"            1 server + 2 agents, k3s v1.36.0
         │
         ├── metrics-server     bundled with k3s (HPA depends on it)
-        ├── ingress-nginx      LoadBalancer -> ServiceLB -> host :8090/:8543
-        ├── Argo CD            reconciles this repo
-        └── observability      Prometheus + Grafana + Alertmanager
-                               Loki + Alloy (logs from every pod)
+        └── Argo CD            reconciles this repo, and installs:
+                 ├── ingress-nginx      host :8090/:8543
+                 ├── observability      Prometheus, Grafana, Alertmanager,
+                 │                      Loki, Alloy (logs from every pod)
+                 └── apps/*             your applications
                  │
                  └── ApplicationSet "lab-apps"
                           scans apps/*/app.yaml
@@ -114,13 +115,18 @@ target on its own — enabling metrics never requires a platform change.
 then pick a namespace and app from the dropdowns. Traffic, workload and logs
 on one page. There is no per-app dashboard to write.
 
+The whole stack is managed by Argo CD, so it appears in the UI beside your
+apps and an upgrade is a version bump in git:
+
 ```bash
-make observability        # install or upgrade the stack on its own
+make platform             # the platform Applications
 make grafana-password
 kubectl -n observability get pods
 ```
 
-Costs roughly 3 GB of RAM. Skip it with `LAB_SKIP_OBSERVABILITY=1 make lab-up`.
+Costs roughly 3 GB of RAM. To run without it, delete the
+`lab/platform/observability/*/platform-app.yaml` files and commit — Argo
+prunes what is no longer declared.
 
 ### Useful queries
 

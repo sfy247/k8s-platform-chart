@@ -1,0 +1,7 @@
+# The Prometheus Operator CRDs are installed as their own Argo CD Application
+# so that ServiceMonitor, PrometheusRule and friends exist before anything
+# tries to create one. kube-prometheus-stack therefore runs with
+# crds.enabled=false — two owners for the same CRDs causes sync conflicts.
+#
+# No overrides needed; this file exists so every platform component has the
+# same shape (metadata + values file).

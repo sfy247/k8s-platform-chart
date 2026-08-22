@@ -1,0 +1,8 @@
+# Platform component — read by the lab-platform ApplicationSet.
+# Keep it flat: Argo CD's git generator parses it directly.
+name: ingress-nginx
+namespace: ingress-nginx
+chartRepo: https://kubernetes.github.io/ingress-nginx
+chart: ingress-nginx
+version: "4.15.1"
+values: lab/platform/ingress-nginx/values.yaml
