@@ -25,6 +25,17 @@ ingress:
   className: nginx
   host: __NAME__.localtest.me
 
+# Logs are collected automatically — nothing to configure. Just log to
+# stdout, ideally as JSON, and the app appears in Grafana.
+#
+# Infrastructure metrics (CPU, memory, restarts) and ingress metrics
+# (request rate, errors, latency) are also automatic.
+#
+# Uncomment ONLY if the app exposes its own Prometheus endpoint:
+# metrics:
+#   enabled: true
+#   path: /metrics
+
 env: {}
   # LOG_LEVEL: info
 

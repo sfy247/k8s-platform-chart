@@ -1,0 +1,67 @@
+# Loki in single-binary mode — the right size for a lab.
+# Log storage only; Grafana queries it via the Loki datasource.
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false          # single tenant
+
+  commonConfig:
+    replication_factor: 1
+
+  storage:
+    type: filesystem
+
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+
+  limits_config:
+    retention_period: 168h     # 7 days
+    reject_old_samples: true
+    reject_old_samples_max_age: 168h
+    allow_structured_metadata: true
+
+  compactor:
+    working_directory: /var/loki/compactor
+    retention_enabled: true
+    delete_request_store: filesystem
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# Everything below is the distributed topology — off in single-binary mode.
+backend:
+  replicas: 0
+read:
+  replicas: 0
+write:
+  replicas: 0
+
+# These memcached caches default to multi-GB memory requests and will not
+# schedule on a laptop. They buy nothing at lab query volumes.
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false
+
+gateway:
+  enabled: false               # talk to the Loki service directly
+lokiCanary:
+  enabled: false
+test:
+  enabled: false

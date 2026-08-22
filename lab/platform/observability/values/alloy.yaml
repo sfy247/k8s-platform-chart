@@ -1,0 +1,82 @@
+# Grafana Alloy — the log collector (successor to Promtail, which is EOL).
+# Runs as a DaemonSet so every node's pods are covered automatically.
+#
+# THIS is what makes logging free for new apps: it discovers pods through the
+# Kubernetes API and ships whatever they write to stdout. No per-app config,
+# no sidecar, no code change. An app just has to log to stdout.
+controller:
+  type: daemonset
+
+alloy:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+  configMap:
+    content: |-
+      // ── Discover every pod in the cluster ─────────────────────
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      // ── Turn Kubernetes metadata into Loki labels ─────────────
+      // Keep this list SHORT. Every label is an index dimension in Loki;
+      // high-cardinality labels (pod names change constantly) make queries
+      // slow and storage expensive. Pod stays because it is genuinely
+      // useful for a lab; drop it first if Loki starts struggling.
+      discovery.relabel "pod_logs" {
+        targets = discovery.kubernetes.pods.targets
+
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        // app.kubernetes.io/instance is set by the generic-app chart, so
+        // every app in apps/ is queryable by name with zero extra config.
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_instance"]
+          target_label  = "app"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_container_name"]
+          separator     = "/"
+          target_label  = "job"
+        }
+      }
+
+      // ── Read container logs via the Kubernetes API ────────────
+      // No hostPath mounts needed, which keeps the DaemonSet unprivileged.
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pod_logs.output
+        forward_to = [loki.process.parse.receiver]
+      }
+
+      // ── Lift structured fields out of JSON logs ───────────────
+      // Apps that log JSON (see services/hello-python) get a queryable
+      // severity label. Plain-text logs pass through untouched.
+      loki.process "parse" {
+        stage.json {
+          expressions = { severity = "severity" }
+        }
+        stage.labels {
+          values = { severity = "severity" }
+        }
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki.observability.svc.cluster.local:3100/loki/api/v1/push"
+        }
+      }

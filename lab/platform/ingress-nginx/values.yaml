@@ -30,7 +30,12 @@ controller:
     enabled: true          # rejects malformed Ingress objects at apply time
 
   metrics:
-    enabled: false         # no Prometheus in this lab yet
+    enabled: true          # request rate / errors / latency per ingress host
+    serviceMonitor:
+      # Left off here on purpose: this chart installs before the observability
+      # stack, so the ServiceMonitor CRD does not exist yet and the release
+      # would fail. lab/scripts/observability.sh flips it on afterwards.
+      enabled: false
 
 # The lab has no cert-manager, so nothing issues real certs. TLS on an app
 # Ingress will fall back to ingress-nginx's self-signed default certificate.

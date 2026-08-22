@@ -1,0 +1,105 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Alerts that apply to EVERY app in the lab, matched by label rather than by
+# name. Adding an app to apps/ puts it under these rules automatically —
+# nothing here is edited per app.
+#
+# kube-prometheus-stack already ships the generic Kubernetes rules
+# (KubePodCrashLooping, KubePodNotReady, KubeDeploymentReplicasMismatch,
+# node and control-plane health). These add the app-level signals it cannot
+# know about: user-visible errors, latency, and scrape health.
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: lab-app-alerts
+  labels:
+    app.kubernetes.io/part-of: lab-observability
+spec:
+  groups:
+    # ── User-visible symptoms, from the ingress controller ──────────────
+    # These need NO application instrumentation. Any app with an Ingress is
+    # covered the moment it is deployed.
+    - name: lab.apps.traffic
+      interval: 30s
+      rules:
+        - alert: LabAppHighErrorRate
+          expr: |
+            sum by (ingress, exported_namespace) (
+              rate(nginx_ingress_controller_requests{status=~"5.."}[5m])
+            )
+            /
+            sum by (ingress, exported_namespace) (
+              rate(nginx_ingress_controller_requests[5m])
+            ) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.ingress }} is serving 5xx responses"
+            description: "{{ $labels.exported_namespace }}/{{ $labels.ingress }} — {{ $value | humanizePercentage }} of requests are 5xx over the last 5m."
+            runbook: "Check the app's logs in Grafana, then: kubectl -n {{ $labels.exported_namespace }} logs -l app.kubernetes.io/instance={{ $labels.ingress }}"
+
+        - alert: LabAppHighLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum by (ingress, exported_namespace, le) (
+                rate(nginx_ingress_controller_request_duration_seconds_bucket[5m])
+              )
+            ) > 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.ingress }} p95 latency above 1s"
+            description: "{{ $labels.exported_namespace }}/{{ $labels.ingress }} — p95 request duration is {{ $value | humanizeDuration }}."
+
+    # ── Workload health ─────────────────────────────────────────────────
+    - name: lab.apps.workload
+      interval: 30s
+      rules:
+        - alert: LabAppNoReadyReplicas
+          expr: |
+            kube_deployment_status_replicas_ready{namespace!~"kube-system|observability|ingress-nginx|argocd"} == 0
+            and
+            kube_deployment_spec_replicas{namespace!~"kube-system|observability|ingress-nginx|argocd"} > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.deployment }} has no ready replicas"
+            description: "Every replica is failing its readiness probe or crashing. The app is serving nothing."
+            runbook: "kubectl -n {{ $labels.namespace }} describe deploy {{ $labels.deployment }}"
+
+        - alert: LabAppRestarting
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace!~"kube-system|observability"}[15m]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.pod }} is restarting repeatedly"
+            description: "{{ $value | printf \"%.0f\" }} restarts in 15 minutes — usually a failing liveness probe or a crash on startup."
+            runbook: "kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }} --previous"
+
+        - alert: LabAppOOMKilled
+          expr: |
+            kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.pod }} was OOMKilled"
+            description: "The container hit its memory limit. Raise resources.limits.memory in the app's values, or fix the leak."
+
+    # ── Observability of the observability ──────────────────────────────
+    - name: lab.apps.scrape
+      interval: 30s
+      rules:
+        - alert: LabAppMetricsTargetDown
+          expr: up{job!~"apiserver|kubelet|node-exporter"} == 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prometheus cannot scrape {{ $labels.job }}"
+            description: "An app enabled metrics but the endpoint is unreachable. Check metrics.port and metrics.path in its values.yaml."

@@ -11,7 +11,9 @@ is a two-file change. Built for `charts/generic-app`.
         │
         ├── metrics-server     bundled with k3s (HPA depends on it)
         ├── ingress-nginx      LoadBalancer -> ServiceLB -> host :8090/:8543
-        └── Argo CD            reconciles this repo
+        ├── Argo CD            reconciles this repo
+        └── observability      Prometheus + Grafana + Alertmanager
+                               Loki + Alloy (logs from every pod)
                  │
                  └── ApplicationSet "lab-apps"
                           scans apps/*/app.yaml
@@ -36,6 +38,7 @@ make argocd-password   # login: admin
 | Thing | Where |
 |---|---|
 | Argo CD UI | http://argocd.localtest.me:8090 |
+| Grafana | http://grafana.localtest.me:8090 (admin / admin) |
 | Any app | `http://<app>.localtest.me:8090` |
 | Cluster context | `k3d-lab` |
 
@@ -85,13 +88,60 @@ make lab-reset    # down + up
 
 Nothing outside the `lab` cluster and `~/.local/bin` is touched.
 
+## Observability
+
+Runs in-cluster in the `observability` namespace, watching every app.
+
+| What a new app gets | Configuration needed |
+|---|---|
+| Logs in Grafana, searchable by app | **none** — Alloy collects every pod's stdout |
+| CPU, memory, restarts, replica health | **none** — kube-state-metrics and cAdvisor |
+| Request rate, error rate, p95 latency | **none** — from the ingress controller |
+| Alerts on 5xx, latency, crash loops, OOMKills | **none** — platform rules match by label |
+| Its own application metrics | 3 lines in `apps/<name>/values.yaml` |
+
+```yaml
+metrics:
+  enabled: true
+  path: /metrics
+```
+
+That renders a ServiceMonitor. Prometheus is configured with
+`serviceMonitorSelectorNilUsesHelmValues: false`, so it discovers the new
+target on its own — enabling metrics never requires a platform change.
+
+**One dashboard serves every app.** Grafana → *Lab* → **Application Overview**,
+then pick a namespace and app from the dropdowns. Traffic, workload and logs
+on one page. There is no per-app dashboard to write.
+
+```bash
+make observability        # install or upgrade the stack on its own
+make grafana-password
+kubectl -n observability get pods
+```
+
+Costs roughly 3 GB of RAM. Skip it with `LAB_SKIP_OBSERVABILITY=1 make lab-up`.
+
+### Useful queries
+
+```logql
+{app="hello-python"}                          # all logs for an app
+{app="hello-python", severity="ERROR"}        # JSON severity was parsed out
+{namespace="demo"} |= "timeout"               # free-text across a namespace
+```
+
+```promql
+sum(rate(nginx_ingress_controller_requests{ingress="hello-python"}[5m]))
+sum(rate(hello_python_requests_total[5m])) by (status)
+```
+
 ## What is deliberately not here
 
 | Not installed | Why, and what to do instead |
 |---|---|
 | Local registry | `k3d image import` covers local builds. Add `k3d registry create` if you start pushing between clusters. |
 | cert-manager | No trusted local CA, so `ingress.tls: true` falls back to nginx's self-signed cert. Add it when you need to exercise TLS paths. |
-| Prometheus/Grafana/Loki | The heaviest add-on by far. Add `kube-prometheus-stack` when you need to test observability, not before. |
+| Tempo / tracing | Metrics and logs answer "what broke". Traces answer "where in a request chain" — worth adding once there are services calling each other. The OTel SDK would go in the app; Tempo is another `helm upgrade --install` here. |
 
 Each is a `helm upgrade --install` in `lab/scripts/bootstrap.sh` plus a values
 file under `lab/platform/` — the same shape as the two add-ons already there.

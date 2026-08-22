@@ -17,6 +17,7 @@ CHART   := charts/generic-app
 
 .PHONY: help preflight cluster-up cluster-down lab-up lab-down bootstrap \
         new-app deploy uninstall image-import status sync argocd-password \
+        observability grafana-password \
         logs lint template validate
 
 help: ## Show available targets
@@ -29,8 +30,11 @@ preflight: ## Install/verify pinned kubectl, helm, k3d (no sudo, ~/.local/bin)
 cluster-up: preflight ## Create the k3d lab cluster
 	@$(SCRIPTS)/cluster-up.sh
 
-bootstrap: ## Install ingress-nginx + Argo CD + the lab-apps ApplicationSet
+bootstrap: ## Install ingress-nginx + Argo CD + observability + the ApplicationSet
 	@$(SCRIPTS)/bootstrap.sh
+
+observability: ## Install/upgrade just the observability stack
+	@$(SCRIPTS)/observability.sh
 
 lab-up: cluster-up bootstrap ## Create the cluster and bootstrap the platform
 
@@ -59,6 +63,10 @@ sync: ## Force an Argo CD sync: make sync APP=myapp
 	@test -n "$(APP)" || { echo "APP is required"; exit 1; }
 	kubectl -n argocd patch application $(APP) --type merge \
 	  -p '{"operation":{"initiatedBy":{"username":"make"},"sync":{"revision":"HEAD"}}}'
+
+grafana-password: ## Print the Grafana admin password
+	@kubectl -n observability get secret kube-prometheus-stack-grafana \
+	  -o jsonpath='{.data.admin-password}' | base64 -d; echo
 
 argocd-password: ## Print the Argo CD admin password
 	@kubectl -n argocd get secret argocd-initial-admin-secret \

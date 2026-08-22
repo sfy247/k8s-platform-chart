@@ -124,6 +124,41 @@ persistence:
   mountPath: /data
 
 # ─────────────────────────────────────────────
+# OBSERVABILITY
+# ─────────────────────────────────────────────
+# Logs need NOTHING here. Alloy collects stdout from every pod in the
+# cluster automatically — just log to stdout, ideally as JSON.
+#
+# Infrastructure metrics (CPU, memory, restarts, replicas) and the RED
+# metrics from the ingress (request rate, error rate, latency) are also
+# free — kube-state-metrics and ingress-nginx provide them without the app
+# doing anything.
+#
+# The block below is only for metrics the APPLICATION exposes itself.
+metrics:
+  enabled: false
+  path: /metrics
+  port: ""              # leave empty to scrape the app's main port
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}            # extra labels on the ServiceMonitor
+  relabelings: []
+
+# Per-app alert rules, for thresholds only this app knows about. The
+# platform already alerts on 5xx rate, latency, crash loops, OOMKills and
+# unready deployments for every app — do not duplicate those here.
+alerts:
+  enabled: false
+  rules: []
+    # - alert: MyAppQueueBacklog
+    #   expr: myapp_queue_depth > 1000
+    #   for: 10m
+    #   labels:
+    #     severity: warning
+    #   annotations:
+    #     summary: "Queue backlog on {{ $labels.pod }}"
+
+# ─────────────────────────────────────────────
 # SERVICE ACCOUNT
 # ─────────────────────────────────────────────
 serviceAccount:
