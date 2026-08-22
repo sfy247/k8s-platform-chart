@@ -1,0 +1,37 @@
+# Applied directly by bootstrap.sh, before the platform ApplicationSet, so
+# that ServiceMonitor/PrometheusRule exist before any chart declares one.
+#
+# The ApplicationSet also generates this Application from
+# lab/platform/observability/prometheus-operator-crds/platform-app.yaml;
+# both produce the same object, so whichever runs first wins and the other
+# is a no-op.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus-operator-crds
+  namespace: argocd
+  labels:
+    lab.sfy247.io/layer: platform
+spec:
+  project: default
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: prometheus-operator-crds
+      targetRevision: "31.0.1"
+      helm:
+        releaseName: prometheus-operator-crds
+        valueFiles:
+          - $values/lab/platform/observability/values/prometheus-operator-crds.yaml
+    - repoURL: https://github.com/sfy247/k8s-platform-chart.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: false        # never prune CRDs — that would delete every CR
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

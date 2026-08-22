@@ -1,0 +1,67 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Platform components as Argo CD Applications.
+#
+# Same idea as the app ApplicationSet, one level down: it scans
+# lab/platform/**/platform-app.yaml and turns each into an Application that
+# installs an upstream Helm chart with values held in THIS repo.
+#
+# Multi-source Applications make that possible — source 1 is the chart
+# registry, source 2 is this repo referenced as $values.
+#
+# Result: Prometheus, Grafana, Loki, Alloy and ingress-nginx appear in the
+# Argo CD UI next to the apps, drift is detected on them too, and upgrading
+# one is a version bump in its platform-app.yaml.
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: lab-platform
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+
+  generators:
+    - git:
+        repoURL: https://github.com/sfy247/k8s-platform-chart.git
+        revision: main
+        files:
+          - path: "lab/platform/**/platform-app.yaml"
+
+  template:
+    metadata:
+      name: "{{ .name }}"
+      labels:
+        lab.sfy247.io/layer: platform
+    spec:
+      project: default
+      sources:
+        - repoURL: "{{ .chartRepo }}"
+          chart: "{{ .chart }}"
+          targetRevision: "{{ .version }}"
+          helm:
+            releaseName: "{{ .name }}"
+            valueFiles:
+              - $values/{{ .values }}
+        - repoURL: https://github.com/sfy247/k8s-platform-chart.git
+          targetRevision: main
+          ref: values
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "{{ .namespace }}"
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          # Charts referencing CRDs that are still being installed fail their
+          # dry run. Skip it rather than depending on install ordering.
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 10
+          backoff:
+            duration: 15s
+            factor: 2
+            maxDuration: 5m

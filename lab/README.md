@@ -10,10 +10,11 @@ is a two-file change. Built for `charts/generic-app`.
   k3d cluster "lab"            1 server + 2 agents, k3s v1.36.0
         │
         ├── metrics-server     bundled with k3s (HPA depends on it)
-        ├── ingress-nginx      LoadBalancer -> ServiceLB -> host :8090/:8543
-        ├── Argo CD            reconciles this repo
-        └── observability      Prometheus + Grafana + Alertmanager
-                               Loki + Alloy (logs from every pod)
+        └── Argo CD            reconciles this repo, and installs:
+                 ├── ingress-nginx      host :8090/:8543
+                 ├── observability      Prometheus, Grafana, Alertmanager,
+                 │                      Loki, Alloy (logs from every pod)
+                 └── apps/*             your applications
                  │
                  └── ApplicationSet "lab-apps"
                           scans apps/*/app.yaml
@@ -114,13 +115,18 @@ target on its own — enabling metrics never requires a platform change.
 then pick a namespace and app from the dropdowns. Traffic, workload and logs
 on one page. There is no per-app dashboard to write.
 
+The whole stack is managed by Argo CD, so it appears in the UI beside your
+apps and an upgrade is a version bump in git:
+
 ```bash
-make observability        # install or upgrade the stack on its own
+make platform             # the platform Applications
 make grafana-password
 kubectl -n observability get pods
 ```
 
-Costs roughly 3 GB of RAM. Skip it with `LAB_SKIP_OBSERVABILITY=1 make lab-up`.
+Costs roughly 3 GB of RAM. To run without it, delete the
+`lab/platform/observability/*/platform-app.yaml` files and commit — Argo
+prunes what is no longer declared.
 
 ### Useful queries
 
@@ -157,4 +163,7 @@ file under `lab/platform/` — the same shape as the two add-ons already there.
 | Pod `CreateContainerConfigError` | The chart runs read-only root + non-root uid 1000. Give the app an `extraVolumes` emptyDir (see `apps/podinfo/values.yaml`) |
 | App missing from Argo CD | It only sees pushed commits. `kubectl -n argocd describe applicationset lab-apps` |
 | Ingress rejected: "host and path is already defined" | Two Ingresses claim the same host+path. Usually an app rename — `helm uninstall <app> -n <ns>` first, then deploy |
+| Logs stop arriving; `failed to create fsnotify watcher: too many open files` | Host inotify limits exhausted. `sudo sysctl -w fs.inotify.max_user_instances=512 fs.inotify.max_user_watches=524288` — `make preflight` warns about this |
+| Grafana shows no app in the dropdown | The app has no pods yet, or kube-state-metrics has not scraped it — wait a scrape interval |
+| Prometheus target missing after enabling metrics | `kubectl -n <ns> get servicemonitor` — then check `metrics.path` and that the port name resolves |
 | HPA shows `<unknown>` targets | `kubectl -n kube-system get deploy metrics-server` |
