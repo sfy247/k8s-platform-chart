@@ -17,7 +17,7 @@ CHART   := charts/generic-app
 
 .PHONY: help preflight cluster-up cluster-down lab-up lab-down bootstrap \
         new-app deploy uninstall image-import status sync argocd-password \
-        grafana-password platform \
+        grafana-password platform recover images verify \
         logs lint template validate
 
 help: ## Show available targets
@@ -39,6 +39,16 @@ lab-down: ## Delete the lab cluster (destroys all workloads and local volumes)
 	@$(SCRIPTS)/cluster-down.sh
 
 lab-reset: lab-down lab-up ## Recreate the lab from scratch
+
+# ── Disaster recovery ────────────────────────────────────────
+recover: ## Rebuild the whole lab and verify it. FRESH=1 destroys the cluster first
+	@$(SCRIPTS)/recover.sh
+
+images: ## Rebuild and import every locally-built image: make images [APP=myapp]
+	@$(SCRIPTS)/images.sh
+
+verify: ## Smoke test the whole lab — nodes, platform, apps, endpoints
+	@$(SCRIPTS)/verify.sh
 
 # ── App workflow ─────────────────────────────────────────────
 new-app: ## Scaffold an app: make new-app NAME=myapp [NAMESPACE=demo] [APP_ENV=local] [PORT=8080] [IMAGE=...] [TAG=...]

@@ -80,6 +80,27 @@ make image-import IMAGE=myapp:dev
 `environments/local.yaml` sets `pullPolicy: IfNotPresent` so the imported image
 is used instead of being fetched from a registry that does not have it.
 
+## Disaster recovery
+
+```bash
+make recover              # rebuild in place, idempotent, safe any time
+make recover FRESH=1      # destroy the cluster first, then rebuild
+make verify               # smoke test: nodes, platform, apps, endpoints
+make images               # rebuild locally-built images only
+```
+
+The cluster and platform rebuild themselves from git. **Locally-built images
+cannot** — they live only in the cluster's image store, so `make images`
+rebuilds them at the exact tag each app's `values.yaml` asks for. Skipping
+that step leaves apps in `ErrImagePull` with nothing in git to fix it.
+
+Not restored, by design: Prometheus metric history and Loki logs (they live
+on cluster PVCs), passwords changed in a UI, and anything created with
+`kubectl` that was never committed.
+
+Drill it occasionally — a recovery procedure that has never been run is a
+hypothesis.
+
 ## Tear it down
 
 ```bash
