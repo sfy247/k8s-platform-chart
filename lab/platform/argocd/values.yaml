@@ -18,6 +18,10 @@ configs:
     application.resourceTrackingMethod: annotation
 
 server:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
   ingress:
     enabled: true
     ingressClassName: nginx
@@ -26,13 +30,26 @@ server:
       cpu: 50m
       memory: 128Mi
 
+# ── Metrics ───────────────────────────────────────────────────
+# Off by default in the chart. Turning them on is what lets the platform
+# dashboard show sync status, health, and reconciliation performance —
+# otherwise the thing deploying everything is the one thing you cannot see.
 controller:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
   resources:
+
     requests:
       cpu: 100m
       memory: 256Mi
 
 repoServer:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
   resources:
     requests:
       cpu: 50m
@@ -40,6 +57,10 @@ repoServer:
 
 applicationSet:
   enabled: true            # the ApplicationSet controller drives apps/*
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
   resources:
     requests:
       cpu: 25m

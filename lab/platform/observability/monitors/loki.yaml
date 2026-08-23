@@ -1,0 +1,21 @@
+# Loki does not ship a ServiceMonitor in the chart's single-binary mode, so
+# declare one. Without it the platform dashboard cannot answer "is log
+# ingestion healthy" — and a silently broken log pipeline is the worst
+# failure mode in observability.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: loki
+  labels:
+    app.kubernetes.io/part-of: lab-observability
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/instance: loki
+  namespaceSelector:
+    matchNames: [observability]
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 30s
