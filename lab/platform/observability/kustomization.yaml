@@ -6,17 +6,35 @@ namespace: observability
 
 resources:
   - rules/lab-app-alerts.yaml
+  - monitors/loki.yaml
 
 # Each dashboard JSON becomes a ConfigMap the Grafana sidecar imports.
+# Regenerate the JSON with: python3 dashboards/generate.py
 configMapGenerator:
   - name: grafana-dashboard-app-overview
     files:
       - app-overview.json=dashboards/app-overview.json
     options:
-      labels:
-        grafana_dashboard: "1"
-      annotations:
-        grafana_folder: Lab
+      labels: {grafana_dashboard: "1"}
+      annotations: {grafana_folder: Lab}
+  - name: grafana-dashboard-cluster-overview
+    files:
+      - cluster-overview.json=dashboards/cluster-overview.json
+    options:
+      labels: {grafana_dashboard: "1"}
+      annotations: {grafana_folder: Lab}
+  - name: grafana-dashboard-fleet
+    files:
+      - fleet.json=dashboards/fleet.json
+    options:
+      labels: {grafana_dashboard: "1"}
+      annotations: {grafana_folder: Lab}
+  - name: grafana-dashboard-platform-health
+    files:
+      - platform-health.json=dashboards/platform-health.json
+    options:
+      labels: {grafana_dashboard: "1"}
+      annotations: {grafana_folder: Lab}
 
 generatorOptions:
   # Stable names: the sidecar tracks ConfigMaps, and a hash suffix would
