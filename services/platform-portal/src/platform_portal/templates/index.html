@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="refresh" content="{{ refresh_seconds }}">
+<title>{{ title }}</title>
+<style>
+  :root {
+    --bg: #0f1117; --card: #181b23; --card-hover: #1f232d; --border: #272b36;
+    --text: #e6e8ee; --muted: #8b93a7;
+    --ok: #3fb950; --warn: #d29922; --bad: #f85149; --unknown: #6e7681;
+    --accent: #58a6ff;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f6f8fa; --card: #fff; --card-hover: #f0f3f6; --border: #d6dae1;
+      --text: #1f2328; --muted: #636c76;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2rem 1.5rem; background: var(--bg); color: var(--text);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; margin-bottom: .35rem; }
+  h1 { font-size: 1.5rem; margin: 0; letter-spacing: -.01em; }
+  .meta { color: var(--muted); font-size: .82rem; }
+  h2 {
+    font-size: .78rem; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--muted); margin: 2.25rem 0 .85rem; font-weight: 600;
+  }
+  .grid { display: grid; gap: .85rem; grid-template-columns: repeat(auto-fill, minmax(265px, 1fr)); }
+  .card {
+    display: block; padding: 1rem 1.1rem; background: var(--card); color: inherit;
+    border: 1px solid var(--border); border-left: 3px solid var(--unknown);
+    border-radius: 9px; text-decoration: none; transition: background .12s, transform .12s;
+  }
+  .card:hover { background: var(--card-hover); transform: translateY(-1px); }
+  .card.healthy { border-left-color: var(--ok); }
+  .card.unhealthy { border-left-color: var(--warn); }
+  .card.unreachable { border-left-color: var(--bad); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: .6rem; }
+  .name { font-weight: 600; font-size: 1.02rem; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--unknown); flex: none; }
+  .healthy .dot { background: var(--ok); }
+  .unhealthy .dot { background: var(--warn); }
+  .unreachable .dot { background: var(--bad); }
+  .host { color: var(--accent); font-size: .84rem; margin-top: .3rem; word-break: break-all; }
+  .desc { color: var(--muted); font-size: .84rem; margin-top: .45rem; }
+  .foot {
+    display: flex; justify-content: space-between; gap: .5rem; margin-top: .7rem;
+    padding-top: .6rem; border-top: 1px solid var(--border);
+    color: var(--muted); font-size: .76rem;
+  }
+  .ns { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .empty { color: var(--muted); padding: 2rem; text-align: center; border: 1px dashed var(--border); border-radius: 9px; }
+  .err { background: rgba(248,81,73,.12); border: 1px solid var(--bad); padding: .7rem 1rem; border-radius: 8px; margin-bottom: 1.25rem; font-size: .86rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>{{ title }}</h1>
+    <span class="meta">
+      {% if last_refresh %}checked {{ last_refresh.strftime('%H:%M:%S UTC') }}{% else %}discovering…{% endif %}
+      · refreshes every {{ refresh_seconds }}s
+    </span>
+  </header>
+
+  {% if last_error %}<div class="err"><strong>Discovery failing:</strong> {{ last_error }}</div>{% endif %}
+
+  <h2>Applications</h2>
+  {% if apps %}
+  <div class="grid">
+    {% for a in apps %}
+    <a class="card {{ a.status }}" href="{{ a.url }}" target="_blank" rel="noopener">
+      <div class="row">
+        <span class="name">{% if a.icon %}{{ a.icon }} {% endif %}{{ a.name }}</span>
+        <span class="dot" title="{{ a.status }}{% if a.detail %} — {{ a.detail }}{% endif %}"></span>
+      </div>
+      <div class="host">{{ a.host }}</div>
+      {% if a.description %}<div class="desc">{{ a.description }}</div>{% endif %}
+      <div class="foot">
+        <span class="ns">{{ a.namespace }}</span>
+        <span>
+          {%- if a.status == 'healthy' -%}healthy{% if a.latency_ms %} · {{ a.latency_ms }}ms{% endif %}
+          {%- else -%}{{ a.status }}{% if a.detail %} · {{ a.detail }}{% endif %}{%- endif -%}
+        </span>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">No applications discovered yet. Anything with an Ingress appears here automatically.</div>
+  {% endif %}
+
+  {% if platform %}
+  <h2>Platform</h2>
+  <div class="grid">
+    {% for a in platform %}
+    <a class="card {{ a.status }}" href="{{ a.url }}" target="_blank" rel="noopener">
+      <div class="row">
+        <span class="name">{% if a.icon %}{{ a.icon }} {% endif %}{{ a.name }}</span>
+        <span class="dot" title="{{ a.status }}{% if a.detail %} — {{ a.detail }}{% endif %}"></span>
+      </div>
+      <div class="host">{{ a.host }}</div>
+      {% if a.description %}<div class="desc">{{ a.description }}</div>{% endif %}
+      <div class="foot">
+        <span class="ns">{{ a.namespace }}</span>
+        <span>
+          {%- if a.status == 'healthy' -%}healthy{% if a.latency_ms %} · {{ a.latency_ms }}ms{% endif %}
+          {%- else -%}{{ a.status }}{% if a.detail %} · {{ a.detail }}{% endif %}{%- endif -%}
+        </span>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <h2>About</h2>
+  <div class="meta">
+    Apps are discovered from Kubernetes Ingress objects — nothing is hardcoded, so a new app
+    appears here on its next refresh. Health is probed inside the cluster against each app's
+    Service, which tests the application rather than the ingress path.
+    <br>platform-portal v{{ version }}
+  </div>
+</div>
+</body>
+</html>
