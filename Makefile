@@ -17,7 +17,7 @@ CHART   := charts/generic-app
 
 .PHONY: help preflight cluster-up cluster-down lab-up lab-down bootstrap \
         new-app deploy uninstall image-import status sync argocd-password \
-        grafana-password platform recover images verify \
+        grafana-password platform recover images verify registry images-list \
         logs lint template validate
 
 help: ## Show available targets
@@ -44,8 +44,16 @@ lab-reset: lab-down lab-up ## Recreate the lab from scratch
 recover: ## Rebuild the whole lab and verify it. FRESH=1 destroys the cluster first
 	@$(SCRIPTS)/recover.sh
 
-images: ## Rebuild and import every locally-built image: make images [APP=myapp]
+images: ## Build+push local images to the lab registry: make images [APP=x] [FORCE=1]
 	@$(SCRIPTS)/images.sh
+
+registry: ## Create/start the local image registry (survives cluster deletion)
+	@$(SCRIPTS)/registry.sh
+
+images-list: ## List images stored in the lab registry
+	@curl -s http://localhost:5111/v2/_catalog | python3 -c "import sys,json;[print(' ',r) for r in json.load(sys.stdin)['repositories']]" 2>/dev/null || echo "registry not running — make registry"
+	@for r in $$(curl -s http://localhost:5111/v2/_catalog 2>/dev/null | python3 -c "import sys,json;print(' '.join(json.load(sys.stdin)['repositories']))" 2>/dev/null); do \
+	  printf "    %-20s " "$$r"; curl -s http://localhost:5111/v2/$$r/tags/list | python3 -c "import sys,json;print(json.load(sys.stdin).get('tags'))"; done
 
 verify: ## Smoke test the whole lab — nodes, platform, apps, endpoints
 	@$(SCRIPTS)/verify.sh

@@ -2,6 +2,10 @@
 # REQUIRED
 # ─────────────────────────────────────────────
 image:
+  # Optional registry prefix, kept separate from the repository so the same
+  # app values work everywhere: the local lab sets localhost:5111, EKS would
+  # set an ECR address, and nothing else changes.
+  registry: ""
   repository: ""          # e.g. ghcr.io/sfy247/my-app
   tag: "latest"
   pullPolicy: IfNotPresent
