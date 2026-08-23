@@ -1,0 +1,62 @@
+# The centralized entry point: one page linking to every app in the cluster,
+# with live health. Discovers apps from Ingress objects, so nothing here
+# needs updating when an app is added.
+
+fullnameOverride: platform-portal
+
+image:
+  repository: platform-portal
+  tag: "0.1.1"
+
+service:
+  port: 80
+  targetPort: 8080
+
+probes:
+  liveness:
+    path: /healthz
+  readiness:
+    path: /readyz
+    # Readiness is false until the first discovery succeeds, so a portal that
+    # cannot reach the Kubernetes API never receives traffic.
+    initialDelaySeconds: 5
+
+ingress:
+  enabled: true
+  className: nginx
+  host: portal.localtest.me
+  annotations:
+    # It is the page you are already looking at.
+    portal.sfy247.io/hide: "true"
+
+env:
+  PORTAL_TITLE: "sfy247 Platform"
+  # The k3d load balancer publishes on 8090; on EKS behind a real load
+  # balancer this is empty and links are plain https://host.
+  URL_SUFFIX: ":8090"
+  REFRESH_SECONDS: "30"
+  LOG_LEVEL: "INFO"
+
+metrics:
+  enabled: true
+  path: /metrics
+
+# Talking to the Kubernetes API needs a token — off by default in the chart.
+serviceAccount:
+  automountToken: true
+
+# Read-only, and only Ingresses. The portal cannot read Secrets, ConfigMaps,
+# pods or anything else, so a compromise of it leaks nothing but hostnames
+# that are already public.
+rbac:
+  enabled: true
+  scope: ClusterRole
+  rules:
+    - apiGroups: ["networking.k8s.io"]
+      resources: ["ingresses"]
+      verbs: ["get", "list"]
+    # Ingress backends may reference their port by NAME; resolving it to a
+    # number requires reading the Service.
+    - apiGroups: [""]
+      resources: ["services"]
+      verbs: ["get", "list"]

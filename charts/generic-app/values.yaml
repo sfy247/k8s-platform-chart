@@ -165,6 +165,23 @@ serviceAccount:
   create: true
   name: ""
   annotations: {}   # use for IRSA / Workload Identity
+  # Off by default: most apps never call the Kubernetes API, and a mounted
+  # token is credential material sitting in the container. Turn it on only
+  # for apps that genuinely need API access.
+  automountToken: false
+
+# ─────────────────────────────────────────────
+# RBAC
+# ─────────────────────────────────────────────
+# Only for apps that call the Kubernetes API. Requires
+# serviceAccount.automountToken: true to be useful.
+rbac:
+  enabled: false
+  scope: Role          # Role (this namespace) or ClusterRole (whole cluster)
+  rules: []
+    # - apiGroups: ["networking.k8s.io"]
+    #   resources: ["ingresses"]
+    #   verbs: ["get", "list"]
 
 # ─────────────────────────────────────────────
 # POD DISRUPTION BUDGET

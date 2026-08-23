@@ -1,0 +1,39 @@
+{{- if .Values.rbac.enabled }}
+{{- /*
+  Kubernetes API access for apps that need it — a portal listing services, a
+  controller, an operator. Rules are supplied by the app, so the chart never
+  guesses at permissions.
+
+  Least privilege is the app's responsibility: ask for the verbs you use and
+  nothing more. Prefer scope=Role (one namespace) over ClusterRole.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ .Values.rbac.scope }}
+metadata:
+  name: {{ include "generic-app.fullname" . }}
+  {{- if eq .Values.rbac.scope "Role" }}
+  namespace: {{ .Release.Namespace }}
+  {{- end }}
+  labels:
+    {{- include "generic-app.labels" . | nindent 4 }}
+rules:
+  {{- toYaml .Values.rbac.rules | nindent 2 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ .Values.rbac.scope }}Binding
+metadata:
+  name: {{ include "generic-app.fullname" . }}
+  {{- if eq .Values.rbac.scope "Role" }}
+  namespace: {{ .Release.Namespace }}
+  {{- end }}
+  labels:
+    {{- include "generic-app.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ .Values.rbac.scope }}
+  name: {{ include "generic-app.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "generic-app.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
