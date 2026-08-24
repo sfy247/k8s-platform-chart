@@ -12,12 +12,13 @@ SHELL := /usr/bin/env bash
 SCRIPTS := lab/scripts
 
 # Pass command-line variables through to the scripts explicitly.
-export NAME APP NAMESPACE APP_ENV PORT IMAGE TAG
+export NAME APP NAMESPACE APP_ENV PORT IMAGE TAG DB FORCE
 CHART   := charts/generic-app
 
 .PHONY: help preflight cluster-up cluster-down lab-up lab-down bootstrap \
         new-app deploy uninstall image-import status sync argocd-password \
         grafana-password platform recover images verify registry images-list \
+        db-user db-shell db-status \
         logs lint template validate
 
 help: ## Show available targets
@@ -46,6 +47,15 @@ recover: ## Rebuild the whole lab and verify it. FRESH=1 destroys the cluster fi
 
 images: ## Build+push local images to the lab registry: make images [APP=x] [FORCE=1]
 	@$(SCRIPTS)/images.sh
+
+db-user: ## Create a DB role + credentials for an app: make db-user APP=trading [NAMESPACE=demo] [DB=trading]
+	@$(SCRIPTS)/db-user.sh
+
+db-shell: ## Open psql on the shared cluster: make db-shell [DB=lab]
+	kubectl -n data exec -it lab-pg-1 -- psql -U postgres -d $(or $(DB),lab)
+
+db-status: ## Show the PostgreSQL cluster and its databases
+	@kubectl -n data get cluster,database,pods 2>/dev/null || echo "postgres not installed yet"
 
 registry: ## Create/start the local image registry (survives cluster deletion)
 	@$(SCRIPTS)/registry.sh

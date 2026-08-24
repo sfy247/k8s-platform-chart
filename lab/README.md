@@ -171,6 +171,40 @@ sum(rate(nginx_ingress_controller_requests{ingress="hello-python"}[5m]))
 sum(rate(hello_python_requests_total[5m])) by (status)
 ```
 
+## Shared PostgreSQL
+
+One CloudNativePG cluster in the `data` namespace serves every project — a
+separate database and role per app, so apps share infrastructure but never
+each other's data.
+
+```bash
+make db-status                        # cluster, databases, pods
+make db-user APP=myapp                # role + credentials for an app
+make db-shell DB=trading              # psql
+```
+
+Adding a database for a new app is three things:
+
+1. a `Database` in `lab/platform/postgres/manifests/databases.yaml`
+2. a role in `managed.roles` in `manifests/cluster.yaml`
+3. `make db-user APP=<name>` — generates the password and writes two Secrets
+
+The role **name** is in git; the **password** is not. `make db-user` writes
+`pg-<app>-credentials` in `data` for the operator, and `<app>-db` in the app
+namespace for the app, which consumes it without naming any value:
+
+```yaml
+envFrom:
+  - secretRef:
+      name: myapp-db
+```
+
+That Secret also carries `DATABASE_URL` and a .NET-style
+`ConnectionStrings__Default`, so most stacks need no further translation.
+
+> Lab pattern. In a shared environment these Secrets would come from
+> External Secrets or sealed-secrets so they are reconciled from git too.
+
 ## What is deliberately not here
 
 | Not installed | Why, and what to do instead |

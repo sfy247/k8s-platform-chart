@@ -1,0 +1,8 @@
+# Platform component — read by the lab-platform ApplicationSet.
+# Keep it flat: Argo CD's git generator parses it directly.
+name: cloudnative-pg
+namespace: cnpg-system
+chartRepo: https://cloudnative-pg.github.io/charts
+chart: cloudnative-pg
+version: "0.29.0"
+values: lab/platform/postgres/values/cloudnative-pg.yaml

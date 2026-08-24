@@ -1,0 +1,37 @@
+# The shared PostgreSQL cluster and its per-app databases.
+#
+# Separate from the operator's own Application: the operator installs CRDs,
+# and these resources use them. Argo retries until the CRDs exist, so the
+# ordering resolves itself on a cold start.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgres-config
+  namespace: argocd
+  labels:
+    lab.sfy247.io/layer: platform
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/sfy247/k8s-platform-chart.git
+    targetRevision: main
+    path: lab/platform/postgres
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: data
+  syncPolicy:
+    automated:
+      # Never prune: pruning a Database or Cluster resource would take the
+      # data with it.
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m

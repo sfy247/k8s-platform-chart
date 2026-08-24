@@ -1,0 +1,24 @@
+# ─────────────────────────────────────────────────────────────────────────
+# One database per application, declared in git.
+#
+# Adding a database for a new app is a block in this file — the operator
+# creates the database, and `make db-user APP=<name>` creates its role and
+# a Secret holding a generated password (never committed).
+#
+# Why not one shared database with a shared user: an app that can read every
+# other app's tables is a data breach waiting for the first mistake, and
+# migrations become impossible to reason about.
+# ─────────────────────────────────────────────────────────────────────────
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: trading
+  namespace: data
+spec:
+  name: trading
+  owner: trading_app
+  cluster:
+    name: lab-pg
+  # Keep the database if this resource is deleted. Deleting a manifest
+  # should never silently destroy data.
+  databaseReclaimPolicy: retain
