@@ -68,17 +68,47 @@ Argo CD reads from the **git remote**, not your working tree. Before a push,
 
 ### Images you build locally
 
-There is no registry in the lab, so push the image into the cluster's
-containerd instead:
+They go to the lab registry - a standalone container that **survives cluster
+deletion**, so recovery is a pull rather than a rebuild.
 
 ```bash
-docker build -t myapp:dev .
-make image-import IMAGE=myapp:dev
-# apps/myapp/values.yaml -> image.repository: myapp, image.tag: dev
+make images                  # build and push whatever is missing
+make images APP=myapp        # just one
+make images FORCE=1          # rebuild even if the registry has it
+make images-list             # what is stored
 ```
 
-`environments/local.yaml` sets `pullPolicy: IfNotPresent` so the imported image
-is used instead of being fetched from a registry that does not have it.
+`make images` reads each app's `values.yaml`: if `image.repository` matches a
+directory under `services/`, it is a local build and gets built at exactly
+the tag the app asks for. Nothing to keep in sync.
+
+Apps name only the repository and tag. `environments/local.yaml` supplies
+`image.registry: localhost:5111`, so the same app values work on EKS with an
+ECR address in that layer instead. The chart skips the prefix for
+repositories that already name a registry, so `ghcr.io/...` images are
+untouched.
+
+## Disaster recovery
+
+```bash
+make recover              # rebuild in place, idempotent, safe any time
+make recover FRESH=1      # destroy the cluster first, then rebuild
+make verify               # smoke test: nodes, platform, apps, endpoints
+make images               # rebuild locally-built images only
+```
+
+The cluster and platform rebuild themselves from git. Locally-built images
+cannot - but they live in the lab registry, a standalone container that
+`k3d cluster delete` does not touch, so `make images` finds them already
+there and recovery skips rebuilding entirely. Only a genuinely missing image
+is rebuilt from `services/`.
+
+Not restored, by design: Prometheus metric history and Loki logs (they live
+on cluster PVCs), passwords changed in a UI, and anything created with
+`kubectl` that was never committed.
+
+Drill it occasionally — a recovery procedure that has never been run is a
+hypothesis.
 
 ## Tear it down
 
@@ -141,11 +171,44 @@ sum(rate(nginx_ingress_controller_requests{ingress="hello-python"}[5m]))
 sum(rate(hello_python_requests_total[5m])) by (status)
 ```
 
+## Shared PostgreSQL
+
+One CloudNativePG cluster in the `data` namespace serves every project — a
+separate database and role per app, so apps share infrastructure but never
+each other's data.
+
+```bash
+make db-status                        # cluster, databases, pods
+make db-user APP=myapp                # role + credentials for an app
+make db-shell DB=trading              # psql
+```
+
+Adding a database for a new app is three things:
+
+1. a `Database` in `lab/platform/postgres/manifests/databases.yaml`
+2. a role in `managed.roles` in `manifests/cluster.yaml`
+3. `make db-user APP=<name>` — generates the password and writes two Secrets
+
+The role **name** is in git; the **password** is not. `make db-user` writes
+`pg-<app>-credentials` in `data` for the operator, and `<app>-db` in the app
+namespace for the app, which consumes it without naming any value:
+
+```yaml
+envFrom:
+  - secretRef:
+      name: myapp-db
+```
+
+That Secret also carries `DATABASE_URL` and a .NET-style
+`ConnectionStrings__Default`, so most stacks need no further translation.
+
+> Lab pattern. In a shared environment these Secrets would come from
+> External Secrets or sealed-secrets so they are reconciled from git too.
+
 ## What is deliberately not here
 
 | Not installed | Why, and what to do instead |
 |---|---|
-| Local registry | `k3d image import` covers local builds. Add `k3d registry create` if you start pushing between clusters. |
 | cert-manager | No trusted local CA, so `ingress.tls: true` falls back to nginx's self-signed cert. Add it when you need to exercise TLS paths. |
 | Tempo / tracing | Metrics and logs answer "what broke". Traces answer "where in a request chain" — worth adding once there are services calling each other. The OTel SDK would go in the app; Tempo is another `helm upgrade --install` here. |
 

@@ -17,6 +17,9 @@ check_port() {
   fi
 }
 
+# The cluster config wires in the registry by name, so it has to exist first.
+"${LAB_DIR}/scripts/registry.sh"
+
 if ! cluster_exists; then
   check_port "${LAB_HTTP_PORT}" "HTTP"
   check_port "${LAB_HTTPS_PORT}" "HTTPS"

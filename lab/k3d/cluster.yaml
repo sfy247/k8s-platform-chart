@@ -26,6 +26,26 @@ ports:
     nodeFilters:
       - loadbalancer
 
+# ─────────────────────────────────────────────────────────────
+# Local image registry
+# ─────────────────────────────────────────────────────────────
+# `use` wires the already-running standalone registry into this cluster.
+# It is created separately by lab/scripts/registry.sh precisely so that
+# deleting the cluster does not delete the images.
+#
+# The mirror maps the address used in image references (localhost:5111,
+# which is what you push to from the host) onto the registry container's
+# address on the k3d network. Without it, a node resolving localhost:5111
+# would look at itself and find nothing.
+registries:
+  use:
+    - k3d-lab-registry:5000
+  config: |
+    mirrors:
+      "localhost:5111":
+        endpoint:
+          - http://k3d-lab-registry:5000
+
 options:
   k3d:
     wait: true

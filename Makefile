@@ -12,12 +12,13 @@ SHELL := /usr/bin/env bash
 SCRIPTS := lab/scripts
 
 # Pass command-line variables through to the scripts explicitly.
-export NAME APP NAMESPACE APP_ENV PORT IMAGE TAG
+export NAME APP NAMESPACE APP_ENV PORT IMAGE TAG DB FORCE
 CHART   := charts/generic-app
 
 .PHONY: help preflight cluster-up cluster-down lab-up lab-down bootstrap \
         new-app deploy uninstall image-import status sync argocd-password \
-        grafana-password platform \
+        grafana-password platform recover images verify registry images-list \
+        db-user db-shell db-status \
         logs lint template validate
 
 help: ## Show available targets
@@ -39,6 +40,33 @@ lab-down: ## Delete the lab cluster (destroys all workloads and local volumes)
 	@$(SCRIPTS)/cluster-down.sh
 
 lab-reset: lab-down lab-up ## Recreate the lab from scratch
+
+# ── Disaster recovery ────────────────────────────────────────
+recover: ## Rebuild the whole lab and verify it. FRESH=1 destroys the cluster first
+	@$(SCRIPTS)/recover.sh
+
+images: ## Build+push local images to the lab registry: make images [APP=x] [FORCE=1]
+	@$(SCRIPTS)/images.sh
+
+db-user: ## Create a DB role + credentials for an app: make db-user APP=trading [NAMESPACE=demo] [DB=trading]
+	@$(SCRIPTS)/db-user.sh
+
+db-shell: ## Open psql on the shared cluster: make db-shell [DB=lab]
+	kubectl -n data exec -it lab-pg-1 -- psql -U postgres -d $(or $(DB),lab)
+
+db-status: ## Show the PostgreSQL cluster and its databases
+	@kubectl -n data get cluster,database,pods 2>/dev/null || echo "postgres not installed yet"
+
+registry: ## Create/start the local image registry (survives cluster deletion)
+	@$(SCRIPTS)/registry.sh
+
+images-list: ## List images stored in the lab registry
+	@curl -s http://localhost:5111/v2/_catalog | python3 -c "import sys,json;[print(' ',r) for r in json.load(sys.stdin)['repositories']]" 2>/dev/null || echo "registry not running — make registry"
+	@for r in $$(curl -s http://localhost:5111/v2/_catalog 2>/dev/null | python3 -c "import sys,json;print(' '.join(json.load(sys.stdin)['repositories']))" 2>/dev/null); do \
+	  printf "    %-20s " "$$r"; curl -s http://localhost:5111/v2/$$r/tags/list | python3 -c "import sys,json;print(json.load(sys.stdin).get('tags'))"; done
+
+verify: ## Smoke test the whole lab — nodes, platform, apps, endpoints
+	@$(SCRIPTS)/verify.sh
 
 # ── App workflow ─────────────────────────────────────────────
 new-app: ## Scaffold an app: make new-app NAME=myapp [NAMESPACE=demo] [APP_ENV=local] [PORT=8080] [IMAGE=...] [TAG=...]

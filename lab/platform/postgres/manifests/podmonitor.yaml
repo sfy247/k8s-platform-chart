@@ -1,0 +1,20 @@
+# Scrape the database's own metrics.
+#
+# CNPG used to create this from spec.monitoring.enablePodMonitor, which is
+# deprecated — the operator now expects the PodMonitor to be managed
+# explicitly, which is better anyway: it is visible in git like every other
+# scrape target.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: lab-pg
+  namespace: data
+  labels:
+    app.kubernetes.io/part-of: lab-observability
+spec:
+  selector:
+    matchLabels:
+      cnpg.io/cluster: lab-pg
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 30s

@@ -23,9 +23,12 @@ ingress:
   # No cert-manager in the lab; TLS would fall back to nginx's self-signed cert.
   tls: false
 
-# Local images built with `make image-import` carry no registry, so never
-# try to pull them from upstream.
+# Locally built images are pushed to the lab registry, which is a standalone
+# container that outlives the cluster. Apps only name the repository and tag;
+# this layer decides where images come from, so the same app values work on
+# EKS with an ECR address here instead.
 image:
+  registry: "localhost:5111"
   pullPolicy: IfNotPresent
 
 # Fail fast while iterating instead of waiting out production grace periods.

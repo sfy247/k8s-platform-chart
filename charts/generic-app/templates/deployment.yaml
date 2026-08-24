@@ -40,7 +40,20 @@ spec:
       {{- end }}
       containers:
         - name: {{ include "generic-app.name" . }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          {{- /*
+            image.registry is only prepended when the repository does not
+            already name one. Docker's rule: the first path segment is a
+            registry if it contains a dot or a colon. Without this, an
+            environment that sets a registry would mangle every app pulling
+            from ghcr.io or docker.io.
+          */}}
+          {{- $repo := .Values.image.repository }}
+          {{- $first := first (splitList "/" $repo) }}
+          {{- $prefix := "" }}
+          {{- if and .Values.image.registry (not (or (contains "." $first) (contains ":" $first))) }}
+          {{- $prefix = printf "%s/" .Values.image.registry }}
+          {{- end }}
+          image: "{{ $prefix }}{{ $repo }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}

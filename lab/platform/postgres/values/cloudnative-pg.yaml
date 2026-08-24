@@ -1,0 +1,29 @@
+# CloudNativePG — the PostgreSQL operator.
+#
+# Chosen over a plain StatefulSet or the Bitnami chart because the database
+# is shared by every future project: the operator turns "give my app a
+# database and a user" into a Kubernetes resource, and handles failover,
+# backups and point-in-time recovery the same way in a lab as in production.
+#
+# The operator runs in cnpg-system; the database it manages lives in `data`.
+
+crds:
+  create: true
+
+monitoring:
+  # CNPG exports Prometheus metrics per instance. The Prometheus Operator
+  # CRDs already exist, so this wires the database into the same dashboards
+  # and alerting as everything else.
+  podMonitorEnabled: true
+  grafanaDashboard:
+    create: true
+    namespace: observability
+    labels:
+      grafana_dashboard: "1"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
