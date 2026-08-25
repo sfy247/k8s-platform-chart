@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Program.cs uses top-level statements, which require an executable.
+         Without this the project builds as a library and fails with CS8805. -->
+    <OutputType>Exe</OutputType>
+    <RootNamespace>ClaudeTradingAgent.TradingAgent</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Strategy/Strategy.csproj" />
+    <ProjectReference Include="../RiskManagement/RiskManagement.csproj" />
+    <ProjectReference Include="../Execution/Execution.csproj" />
+  </ItemGroup>
+</Project>

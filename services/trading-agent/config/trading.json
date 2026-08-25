@@ -1,0 +1,37 @@
+{
+  "environment": "paper",
+  "tradingEnabled": false,
+  "strategy": {
+    "name": "momentum-v1",
+    "minimumConfidence": 0.70,
+    "lookbackBars": 20,
+    "minimumVolumeRatio": 1.20,
+    "maximumSpreadBps": 25,
+    "requirePositiveTrend": true,
+    "allowMarketOrders": true,
+    "limitPriceBufferBps": 10,
+    "extendedHours": false
+  },
+  "risk": {
+    "startingCapital": 100.00,
+    "maxPositionNotional": 10.00,
+    "maxConcurrentPositions": 3,
+    "maxDailyRealizedLoss": 3.00,
+    "minimumCashReserve": 10.00,
+    "maxPortfolioExposure": 30.00,
+    "maxOrdersPerSymbolPerDay": 2,
+    "maxTotalOrdersPerDay": 8,
+    "maxDataAgeSeconds": 15,
+    "allowMargin": false,
+    "allowShorting": false,
+    "allowOptions": false,
+    "allowCrypto": false
+  },
+  "execution": {
+    "timeInForce": "day",
+    "cancelUnfilledAfterSeconds": 30,
+    "requireMarketOpen": true,
+    "requirePaperEndpoint": true,
+    "reconcileAfterOrder": true
+  }
+}

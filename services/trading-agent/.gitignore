@@ -1,0 +1,30 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# .NET
+bin/
+obj/
+TestResults/
+*.user
+*.suo
+
+# IDE
+.vscode/
+.idea/
+
+# Runtime logs / state
+logs/*
+!logs/.gitkeep
+*.db
+*.sqlite
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+postgres-data/

@@ -1,0 +1,17 @@
+{
+  "allowlist": [
+    "AAPL",
+    "MSFT",
+    "GOOGL",
+    "AMZN",
+    "NVDA"
+  ],
+  "denylist": [],
+  "rules": {
+    "usEquitiesOnly": true,
+    "requireTradable": true,
+    "requireFractionable": true,
+    "minimumPrice": 1.00,
+    "maximumPrice": 1000.00
+  }
+}

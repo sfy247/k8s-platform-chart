@@ -64,3 +64,15 @@ jobs:
               -f "environments/$env.yaml" \
               -f "$app/values.yaml" > /dev/null
           done
+
+  dotnet-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The image build has a test stage, so building it IS running the
+      # tests — one definition of "the tests pass", used by CI and by
+      # anyone building locally.
+      - name: Build and test services/trading-agent
+        run: docker build --target test services/trading-agent
