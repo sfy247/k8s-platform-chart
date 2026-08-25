@@ -12,13 +12,13 @@ SHELL := /usr/bin/env bash
 SCRIPTS := lab/scripts
 
 # Pass command-line variables through to the scripts explicitly.
-export NAME APP NAMESPACE APP_ENV PORT IMAGE TAG DB FORCE
+export NAME APP NAMESPACE APP_ENV PORT IMAGE TAG DB FORCE KEYS SECRET_NAME
 CHART   := charts/generic-app
 
 .PHONY: help preflight cluster-up cluster-down lab-up lab-down bootstrap \
         new-app deploy uninstall image-import status sync argocd-password \
         grafana-password platform recover images verify registry images-list \
-        db-user db-shell db-status \
+        db-user db-shell db-status app-secret \
         logs lint template validate
 
 help: ## Show available targets
@@ -47,6 +47,9 @@ recover: ## Rebuild the whole lab and verify it. FRESH=1 destroys the cluster fi
 
 images: ## Build+push local images to the lab registry: make images [APP=x] [FORCE=1]
 	@$(SCRIPTS)/images.sh
+
+app-secret: ## Create a Secret from prompted values: make app-secret APP=x KEYS="A B"
+	@$(SCRIPTS)/app-secret.sh
 
 db-user: ## Create a DB role + credentials for an app: make db-user APP=trading [NAMESPACE=demo] [DB=trading]
 	@$(SCRIPTS)/db-user.sh
