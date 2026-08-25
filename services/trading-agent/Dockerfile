@@ -29,11 +29,14 @@ RUN dotnet publish src/TradingAgent/TradingAgent.csproj \
       -c Release -o /app/publish --no-restore
 
 # ─────────────────────────────────────────────────────────────
-FROM mcr.microsoft.com/dotnet/runtime:8.0 AS runtime
+# aspnet, not runtime: the agent serves health and metrics endpoints, so it
+# needs the ASP.NET Core shared framework.
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
 
 ENV DOTNET_EnableDiagnostics=0 \
-    DOTNET_RUNNING_IN_CONTAINER=true
+    DOTNET_RUNNING_IN_CONTAINER=true \
+    ASPNETCORE_URLS=http://0.0.0.0:8080
 
 COPY --from=publish /app/publish .
 
@@ -43,6 +46,8 @@ COPY config/ ./config/
 
 # Numeric uid, matching the chart's podSecurityContext.runAsUser. The chart
 # enforces runAsNonRoot, so a root image would be rejected at admission.
+EXPOSE 8080
+
 USER 1000:1000
 
 ENTRYPOINT ["dotnet", "TradingAgent.dll"]

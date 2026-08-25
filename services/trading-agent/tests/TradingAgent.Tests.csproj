@@ -11,5 +11,7 @@
     <ProjectReference Include="../src/Strategy/Strategy.csproj" />
     <ProjectReference Include="../src/RiskManagement/RiskManagement.csproj" />
     <ProjectReference Include="../src/Execution/Execution.csproj" />
+    <ProjectReference Include="../src/MarketData/MarketData.csproj" />
+    <ProjectReference Include="../src/TradingAgent/TradingAgent.csproj" />
   </ItemGroup>
 </Project>

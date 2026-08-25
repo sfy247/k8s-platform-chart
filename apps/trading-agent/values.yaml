@@ -1,0 +1,75 @@
+# Paper-trading agent. Evaluates allowlisted symbols on an interval and puts
+# every proposal through the deterministic risk engine.
+#
+# ORDER SUBMISSION IS OFF. TRADING_ENABLED below and tradingEnabled in
+# config/trading.json must BOTH be true before an order can be placed, and
+# with either false the risk engine rejects everything with KILL_SWITCH.
+# Turning it on is a reviewed change to this file, never a kubectl command.
+
+fullnameOverride: trading-agent
+
+image:
+  repository: trading-agent
+  tag: "0.1.0"
+
+service:
+  port: 80
+  targetPort: 8080
+
+probes:
+  liveness:
+    # The process is running. Deliberately independent of the broker —
+    # Alpaca being unreachable is not a reason to restart the pod.
+    path: /healthz
+  readiness:
+    # A full evaluation cycle has completed recently. A pod that cannot see
+    # the market should not report itself fit.
+    path: /readyz
+    initialDelaySeconds: 15
+    periodSeconds: 30
+    failureThreshold: 4
+
+# Internal only. This is a worker, not a website — there is no reason to
+# expose a trading agent to a browser.
+ingress:
+  enabled: false
+
+metrics:
+  enabled: true
+  path: /metrics
+
+# Behaviour lives here, in git, where changing it is reviewable.
+# Credentials do not: they come from the Secret below.
+env:
+  TRADING_MODE: "PAPER"
+  TRADING_ENABLED: "false"
+  ALPACA_TRADING_BASE_URL: "https://paper-api.alpaca.markets"
+  ALPACA_DATA_BASE_URL: "https://data.alpaca.markets"
+  EVALUATION_INTERVAL_SECONDS: "60"
+  BROKER_TIMEOUT_SECONDS: "10"
+  TRADING_CONFIG_PATH: "config/trading.json"
+  SYMBOL_CONFIG_PATH: "config/symbols.json"
+
+envFrom:
+  # Alpaca paper credentials. Created with:
+  #   make app-secret APP=trading-agent KEYS="ALPACA_API_KEY_ID ALPACA_API_SECRET_KEY"
+  - secretRef:
+      name: trading-agent-secrets
+  # PostgreSQL, from `make db-user APP=trading`.
+  - secretRef:
+      name: trading-db
+
+extraEnv:
+  - name: POD_NAMESPACE
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.namespace
+
+# .NET writes to /tmp; the chart mounts a read-only root filesystem, so it
+# gets scratch space rather than an exception to the security default.
+extraVolumes:
+  - name: tmp
+    emptyDir: {}
+extraVolumeMounts:
+  - name: tmp
+    mountPath: /tmp
