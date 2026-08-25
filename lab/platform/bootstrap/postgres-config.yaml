@@ -19,6 +19,17 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: data
+  # CloudNativePG writes defaults back onto the Cluster spec — the monitoring
+  # block gains customQueriesConfigMap and disableDefaultQueries the moment
+  # the operator sees it. Git does not have them, so without this the
+  # Application is permanently OutOfSync and real drift would be invisible
+  # in the noise.
+  ignoreDifferences:
+    - group: postgresql.cnpg.io
+      kind: Cluster
+      jsonPointers:
+        - /spec/monitoring
+
   syncPolicy:
     automated:
       # Never prune: pruning a Database or Cluster resource would take the
@@ -29,6 +40,10 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+      # Without this, ignoreDifferences affects the displayed diff but the
+      # sync still applies over the operator's defaults, so the app never
+      # reaches Synced.
+      - RespectIgnoreDifferences=true
     retry:
       limit: 10
       backoff:
