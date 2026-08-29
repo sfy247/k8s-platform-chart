@@ -30,12 +30,19 @@ public sealed class AccountSnapshotProvider
         decimal Cash,
         decimal PortfolioExposure,
         int OpenPositionCount,
-        IReadOnlyDictionary<string, decimal> PositionNotionalBySymbol);
+        IReadOnlyDictionary<string, decimal> PositionNotionalBySymbol,
+        decimal DayPnl);
 
     public async Task<Snapshot> GetAsync(CancellationToken cancellationToken)
     {
         var account = await GetJsonAsync($"{_tradingBaseUrl}/v2/account", cancellationToken);
         var cash = ParseDecimal(account, "cash");
+
+        // Today's profit and loss, against the previous session's close.
+        // This is total P&L rather than realised only, which is the more
+        // conservative measure for a daily loss limit: an open position that
+        // is down counts against the budget before it is closed, not after.
+        var dayPnl = ParseDecimal(account, "equity") - ParseDecimal(account, "last_equity");
 
         var positions = await GetJsonAsync($"{_tradingBaseUrl}/v2/positions", cancellationToken);
         var bySymbol = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
@@ -54,7 +61,7 @@ public sealed class AccountSnapshotProvider
             }
         }
 
-        return new Snapshot(cash, exposure, bySymbol.Count, bySymbol);
+        return new Snapshot(cash, exposure, bySymbol.Count, bySymbol, dayPnl);
     }
 
     /// <summary>Orders already placed today, for the daily rate limits.</summary>

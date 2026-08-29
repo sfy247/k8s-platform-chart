@@ -91,9 +91,16 @@ builder.Services.AddHttpClient<AccountSnapshotProvider>(c => c.Timeout = timeout
 // reach a broker at all.
 if (policies.Risk.TradingEnabled)
 {
-    builder.Services.AddHttpClient<IOrderExecutor, AlpacaPaperOrderExecutor>(c => c.Timeout = timeout)
-        .AddTypedClient((http, _) => (IOrderExecutor)new AlpacaPaperOrderExecutor(
+    builder.Services.AddHttpClient<AlpacaPaperOrderExecutor>(c => c.Timeout = timeout)
+        .AddTypedClient((http, _) => new AlpacaPaperOrderExecutor(
             http, options.AlpacaApiKeyId, options.AlpacaApiSecretKey, options.AlpacaTradingBaseUrl));
+
+    // Every order goes through the auditor first. It refuses to submit
+    // anything it cannot record.
+    builder.Services.AddScoped<IOrderExecutor>(sp => new AuditingOrderExecutor(
+        sp.GetRequiredService<AlpacaPaperOrderExecutor>(),
+        sp.GetRequiredService<IDecisionStore>(),
+        sp.GetRequiredService<ILogger<AuditingOrderExecutor>>()));
 }
 else
 {
