@@ -51,9 +51,21 @@ resources:
   limits:
     memory: 512Mi
 
-# Storage lives in PostgreSQL, so the pod itself needs no PVC.
-data:
-  enabled: false
+# The vault's DATA lives in PostgreSQL, but Vaultwarden still needs a writable
+# /data for `rsa_key.pem` — the RSA keypair it signs JWTs with. Without it the
+# container exits at startup with "permission denied ... rsa_key.pem".
+#
+# This PVC is small and holds only that key, the icon cache, and attachments.
+# It must persist: regenerating the key invalidates every existing session.
+storage:
+  data:
+    name: vaultwarden-data
+    size: 1Gi
+    class: local-path
+    path: /data
+    accessMode: ReadWriteOnce
+    # Survive a helm uninstall — this holds the JWT signing key.
+    keepPvc: true
 
 podSecurityContext:
   runAsNonRoot: true
