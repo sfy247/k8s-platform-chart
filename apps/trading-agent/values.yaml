@@ -1,16 +1,24 @@
 # Paper-trading agent. Evaluates allowlisted symbols on an interval and puts
 # every proposal through the deterministic risk engine.
 #
-# ORDER SUBMISSION IS OFF. TRADING_ENABLED below and tradingEnabled in
-# config/trading.json must BOTH be true before an order can be placed, and
-# with either false the risk engine rejects everything with KILL_SWITCH.
-# Turning it on is a reviewed change to this file, never a kubectl command.
+# ORDER SUBMISSION IS ON — paper only, against paper-api.alpaca.markets.
+#
+# TRADING_ENABLED here and tradingEnabled in config/trading.json must BOTH be
+# true; setting either to false is the kill switch and takes effect on the
+# next rollout. Turning it on or off is a reviewed change to this file, never
+# a kubectl command.
+#
+# What actually bounds the risk, from config/trading.json:
+#   $10 per position, $30 total exposure, 3 concurrent positions,
+#   8 orders/day, 2 per symbol/day, $3 daily loss limit.
+# The paper account holds $100,000, so these limits — not the balance — are
+# the constraint.
 
 fullnameOverride: trading-agent
 
 image:
   repository: trading-agent
-  tag: "0.3.0"
+  tag: "0.4.0"
 
 service:
   port: 80
@@ -42,7 +50,7 @@ metrics:
 # Credentials do not: they come from the Secret below.
 env:
   TRADING_MODE: "PAPER"
-  TRADING_ENABLED: "false"
+  TRADING_ENABLED: "true"
   ALPACA_TRADING_BASE_URL: "https://paper-api.alpaca.markets"
   ALPACA_DATA_BASE_URL: "https://data.alpaca.markets"
   EVALUATION_INTERVAL_SECONDS: "60"
