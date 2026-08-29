@@ -564,9 +564,136 @@ def postgres() -> dict:
         ])
 
 
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 5. Trading agent — safety posture first, then decisions
+# ══════════════════════════════════════════════════════════════════════════
+# The chart's ServiceMonitor sets no jobLabel, so Prometheus uses the
+# service name — not the namespace/name form a PodMonitor produces.
+TA = 'job="trading-agent", namespace="demo"'
+TA_LOGS = '{app="trading-agent", namespace="demo"}'
+
+
+def trading_agent() -> dict:
+    p = []
+
+    # ── Safety ────────────────────────────────────────────────────────────
+    # Deliberately the first row. The question that matters most about a
+    # trading system is not how it is performing but what it is permitted to
+    # do, and that should be answerable without scrolling.
+    p.append(row("Safety posture — what the agent is permitted to do", 0))
+    p.append(stat("Mode", 'count(trading_agent_trading_enabled) * 0 + 1', "short", 0, 1, w=4,
+                  thresholds=steps(("green", None)),
+                  desc="PAPER. Enforced in four places: startup config validation, the executor's endpoint guard, the risk engine's RequirePaperMode, and the credentials themselves — the paper keys are rejected by Alpaca's live endpoint."))
+    p.append(stat("Order submission", f'max(trading_agent_trading_enabled{{{TA}}})', "short", 4, 1, w=4,
+                  thresholds=steps(("blue", None), ("orange", 1)),
+                  desc="1 = orders can be placed. 0 = the risk engine rejects everything with KILL_SWITCH. Orange is not an error; it means the agent is armed."))
+    p.append(stat("Market", f'max(trading_agent_market_open{{{TA}}})', "short", 8, 1, w=4,
+                  thresholds=steps(("text", None), ("green", 1)),
+                  desc="1 when Alpaca reports the market open. Nothing is evaluated while it is closed."))
+    p.append(stat("Agent up", f'max(up{{{TA}}})', "short", 12, 1, w=4,
+                  thresholds=steps(("red", None), ("green", 1))))
+    p.append(stat("Audit failures", f'sum(trading_agent_audit_failures_total{{{TA}}}) or vector(0)',
+                  "short", 16, 1, w=4, decimals=0,
+                  thresholds=steps(("green", None), ("red", 1)),
+                  desc="Decisions that could not be written to the audit trail. Any value above zero means history is incomplete — and an order that cannot be recorded is refused rather than sent."))
+    p.append(stat("Cycle failures (1h)",
+                  f'sum(increase(trading_agent_cycles_total{{{TA}, result="failed"}}[1h])) or vector(0)',
+                  "short", 20, 1, w=4, decimals=0,
+                  thresholds=steps(("green", None), ("orange", 1)),
+                  desc="A failed cycle places no orders. The loop continues, because a crash-looping agent tells an operator less than a running one reporting failures."))
+
+    # ── Decisions ─────────────────────────────────────────────────────────
+    p.append(row("Decisions", 5))
+    p.append(ts("Outcomes per second", [
+        tgt(f'sum by (outcome) (rate(trading_agent_evaluations_total{{{TA}}}[5m]))', "{{outcome}}"),
+    ], "short", 0, 6, w=12, stack=True,
+        desc="Every evaluation ends in one of these. kill_switch means the risk engine blocked it because trading is disabled; approved means an order was placed."))
+    p.append({
+        "type": "piechart", "title": "Outcome share (window)",
+        "description": "What the agent has decided over the selected range. A healthy paper run is dominated by no_trade and kill_switch — approvals are rare by design.",
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 6},
+        "datasource": {"type": "prometheus", "uid": PROM},
+        "targets": [tgt(f'sum by (outcome) (increase(trading_agent_evaluations_total{{{TA}}}[$__range]))',
+                        "{{outcome}}", instant=True)],
+        "options": {"legend": {"displayMode": "list", "placement": "right", "showLegend": True},
+                    "reduceOptions": {"calcs": ["lastNotNull"], "values": False}},
+        "fieldConfig": {"defaults": {}, "overrides": []},
+    })
+    p.append(table("Outcomes by symbol", [
+        tgt(f'sum by (symbol, outcome) (increase(trading_agent_evaluations_total{{{TA}}}[$__range]))',
+            "", instant=True),
+    ], 18, 6, w=6, h=8,
+        desc="Which symbols are being rejected and why. A symbol stuck on one rejection code is usually a config mismatch rather than a market condition.",
+        transforms=[{"id": "organize", "options": {"excludeByName": {
+            "Time": True, "__name__": True, "container": True, "endpoint": True,
+            "instance": True, "job": True, "namespace": True, "pod": True, "service": True}}}]))
+
+    p.append(ts("Rejections by reason", [
+        tgt(f'sum by (outcome) (increase(trading_agent_evaluations_total{{{TA}, outcome!="approved"}}[15m]))',
+            "{{outcome}}"),
+    ], "short", 0, 14, w=12,
+        desc="no_data means market data was rejected as unusable — a stale quote, a wide spread, a missing bar. The agent holds rather than inferring a price."))
+    p.append(ts("Evaluations by symbol", [
+        tgt(f'sum by (symbol) (rate(trading_agent_evaluations_total{{{TA}}}[5m]))', "{{symbol}}"),
+    ], "short", 12, 14, w=12))
+
+    # ── Orders ────────────────────────────────────────────────────────────
+    p.append(row("Orders", 22))
+    p.append(stat("Approved (24h)",
+                  f'sum(increase(trading_agent_evaluations_total{{{TA}, outcome="approved"}}[24h])) or vector(0)',
+                  "short", 0, 23, w=6, decimals=0,
+                  thresholds=steps(("text", None)),
+                  desc="Orders the risk engine approved and sent to the broker. Bounded by the daily order limit in trading.json."))
+    p.append(ts("Approvals over time", [
+        tgt(f'sum(increase(trading_agent_evaluations_total{{{TA}, outcome="approved"}}[1h]))', "approved/hour"),
+    ], "short", 6, 23, w=18, h=6,
+        desc="Flat at zero is the expected picture for a conservative momentum strategy on five symbols."))
+
+    # ── Health ────────────────────────────────────────────────────────────
+    p.append(row("Health", 29))
+    p.append(ts("Cycle duration", [
+        tgt(f'histogram_quantile(0.95, sum by (le) (rate(trading_agent_cycle_duration_seconds_bucket{{{TA}}}[5m])))', "p95"),
+        tgt(f'histogram_quantile(0.50, sum by (le) (rate(trading_agent_cycle_duration_seconds_bucket{{{TA}}}[5m])))', "p50", "B"),
+    ], "s", 0, 30, w=8,
+        desc="One cycle fetches the clock, account, orders, then quotes and bars per symbol. Approaching the 60s interval means cycles would start overlapping."))
+    p.append(ts("Cycles per second", [
+        tgt(f'sum by (result) (rate(trading_agent_cycles_total{{{TA}}}[5m]))', "{{result}}"),
+    ], "short", 8, 30, w=8))
+    p.append(ts("Memory and CPU", [
+        tgt('sum(container_memory_working_set_bytes{namespace="demo", pod=~"trading-agent-.*", container!=""})', "memory"),
+    ], "bytes", 16, 30, w=8))
+
+    # ── Logs ──────────────────────────────────────────────────────────────
+    p.append(row("Decision log", 38))
+    p.append(logs_panel(
+        "Orders and warnings",
+        f'{TA_LOGS} | json | severity =~ "WARNING|ERROR|CRITICAL"',
+        0, 39, h=8,
+        desc="Order submissions are logged at WARNING precisely so they surface here rather than being lost among routine holds."))
+    p.append(logs_panel(
+        "Every decision",
+        f'{TA_LOGS} | json | logger =~ ".*TradingWorker.*" | line_format "{{{{.message}}}}"',
+        0, 47, h=14,
+        desc="One line per symbol per cycle: the outcome, the reason, and the strategy's confidence."))
+
+    return dashboard(
+        "lab-trading-agent", "Trading Agent",
+        "Paper-trading agent: safety posture, decisions, orders and health.",
+        ["lab", "application", "trading"], p,
+        templating=[
+            {"name": "ds_prom", "label": "Metrics source", "type": "datasource",
+             "query": "prometheus", "current": {}, "hide": 0, "refresh": 1},
+            {"name": "ds_loki", "label": "Logs source", "type": "datasource",
+             "query": "loki", "current": {}, "hide": 0, "refresh": 1},
+        ])
+
+
 if __name__ == "__main__":
     print("generating dashboards:")
     write(cluster_overview(), "cluster-overview.json")
     write(fleet(), "fleet.json")
     write(platform_health(), "platform-health.json")
     write(postgres(), "postgres.json")
+    write(trading_agent(), "trading-agent.json")
