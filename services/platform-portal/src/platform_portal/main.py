@@ -33,6 +33,7 @@ from platform_portal import __version__
 from platform_portal.config import Settings
 from platform_portal.discovery import (
     App, apps_from_ingresses, apps_from_services, service_port_index,
+    services_claimed_by_ingresses,
 )
 from platform_portal.health import probe_all
 from platform_portal.kube import KubeClient, NotInCluster
@@ -102,10 +103,11 @@ async def refresh(client: KubeClient) -> None:
     )
 
     # Apps that serve no HTTP still belong on an overview of what is running.
-    linked = {(a.namespace, a.service) for a in apps}
+    # The claimed set comes from every Ingress, not from the apps produced:
+    # an app that hides itself would otherwise reappear through its Service.
     apps += apps_from_services(
         services,
-        already_seen=linked,
+        already_seen=services_claimed_by_ingresses(ingresses),
         label_selector=settings.internal_app_label,
         default_health_path=settings.default_health_path,
         platform_namespaces=settings.platform_namespaces,

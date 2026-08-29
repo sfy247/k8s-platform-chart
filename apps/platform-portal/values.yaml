@@ -6,7 +6,7 @@ fullnameOverride: platform-portal
 
 image:
   repository: platform-portal
-  tag: "0.2.0"
+  tag: "0.2.1"
 
 service:
   port: 80

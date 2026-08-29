@@ -175,3 +175,15 @@ def test_a_service_with_no_ports_is_skipped() -> None:
                         "labels": {"app.kubernetes.io/name": "generic-app"}, "annotations": {}},
            "spec": {"ports": []}}
     assert build_internal([bad]) == []
+
+
+def test_an_app_that_hides_itself_does_not_reappear_via_its_service() -> None:
+    from platform_portal.discovery import services_claimed_by_ingresses
+
+    hidden = ingress("platform-portal", "demo", "portal.example.com", "platform-portal",
+                     annotations={"portal.sfy247.io/hide": "true"})
+    # It produces no tile from the Ingress...
+    assert build([hidden]) == []
+    # ...and must not come back through the Service path either.
+    claimed = services_claimed_by_ingresses([hidden])
+    assert build_internal([svc("platform-portal", "demo")], seen=claimed) == []

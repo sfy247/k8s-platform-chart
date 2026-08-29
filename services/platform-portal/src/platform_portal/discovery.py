@@ -130,6 +130,24 @@ def apps_from_ingresses(
     return sorted(apps, key=lambda a: (a.is_platform, a.namespace, a.name))
 
 
+def services_claimed_by_ingresses(ingresses: list[dict[str, Any]]) -> set[tuple[str, str]]:
+    """Every (namespace, service) an Ingress points at — including hidden ones.
+
+    Built from ALL Ingresses rather than from the apps they produced. An app
+    that hides itself is filtered out before it becomes an App, so a set built
+    from the results would let it reappear through its Service.
+    """
+    claimed: set[tuple[str, str]] = set()
+    for ingress in ingresses:
+        namespace = ingress.get("metadata", {}).get("namespace", "")
+        for rule in ingress.get("spec", {}).get("rules") or []:
+            for path in rule.get("http", {}).get("paths") or []:
+                name = path.get("backend", {}).get("service", {}).get("name")
+                if name:
+                    claimed.add((namespace, name))
+    return claimed
+
+
 def apps_from_services(
     services: list[dict[str, Any]],
     *,
