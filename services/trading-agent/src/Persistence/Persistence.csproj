@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="8.0.9" />
+    <PackageReference Include="Dapper" Version="2.1.79" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Strategy/Strategy.csproj" />
+    <ProjectReference Include="../RiskManagement/RiskManagement.csproj" />
+    <ProjectReference Include="../Execution/Execution.csproj" />
+  </ItemGroup>
+
+</Project>
