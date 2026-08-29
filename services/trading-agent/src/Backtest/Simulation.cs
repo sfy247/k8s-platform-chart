@@ -33,9 +33,9 @@ public sealed record Result(
 ///   trading a 0.5% round-trip cost has to be right by more than 0.5% before
 ///   it has made anything, and ignoring that is the second most common lie.
 /// </summary>
-public sealed class Simulation(MomentumPolicy strategyPolicy, RiskPolicy riskPolicy, decimal spreadBps)
+public sealed class Simulation(
+    ITradingStrategy strategy, StrategyPolicy strategyPolicy, RiskPolicy riskPolicy, decimal spreadBps)
 {
-    private readonly MomentumStrategy _strategy = new();
     private readonly RiskEngine _risk = new();
 
     public Result Run(
@@ -78,9 +78,12 @@ public sealed class Simulation(MomentumPolicy strategyPolicy, RiskPolicy riskPol
                 dayStartEquity = Equity(cash, shares, LastPrices(barsBySymbol, bar.TimestampUtc));
             }
 
-            var window = series.Skip(index - lookback + 1).Take(lookback).ToList();
-            var inputs = BuildInputs(symbol, window, spreadBps);
-            var proposal = _strategy.Evaluate(inputs, strategyPolicy, bar.TimestampUtc);
+            // Give the strategy more history than the lookback where it
+            // exists: VWAP and opening-range need the whole session, and
+            // starving them would compare them unfairly against momentum.
+            var window = series.Take(index + 1).TakeLast(Math.Max(lookback, 120)).ToList();
+            var inputs = new StrategyInput(symbol, window, bar.Close, spreadBps, bar.TimestampUtc);
+            var proposal = strategy.Evaluate(inputs, strategyPolicy, bar.TimestampUtc);
 
             var prices = LastPrices(barsBySymbol, bar.TimestampUtc);
             var equity = Equity(cash, shares, prices);
@@ -175,28 +178,4 @@ public sealed class Simulation(MomentumPolicy strategyPolicy, RiskPolicy riskPol
     private static decimal Equity(decimal cash, Dictionary<string, decimal> shares, Dictionary<string, decimal> prices)
         => cash + shares.Sum(kv => kv.Value * prices.GetValueOrDefault(kv.Key, 0m));
 
-    /// <summary>
-    /// Mirrors the worker's own input construction, so the backtest feeds the
-    /// strategy exactly what production feeds it.
-    /// </summary>
-    private static MomentumInputs BuildInputs(string symbol, IReadOnlyList<Bar> window, decimal spreadBps)
-    {
-        var closes = window.Select(b => b.Close).ToArray();
-        var fastWindow = Math.Min(5, closes.Length);
-        var fast = closes.TakeLast(fastWindow).Average();
-        var slow = closes.Average();
-
-        var volumes = window.Select(b => (decimal)b.Volume).ToArray();
-        var recent = volumes.TakeLast(fastWindow).Average();
-        var average = volumes.Average();
-
-        return new MomentumInputs(
-            symbol.ToUpperInvariant(),
-            window[^1].Close,
-            fast,
-            slow,
-            average <= 0 ? 0m : recent / average,
-            spreadBps,
-            window[^1].TimestampUtc);
-    }
 }

@@ -1,1 +1,9 @@
-<Project Sdk="Microsoft.NET.Sdk" />
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- Strategies consume Bar and quote types. MarketData does not depend
+         on Strategy, so this direction introduces no cycle. -->
+    <ProjectReference Include="../MarketData/MarketData.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -37,14 +37,33 @@ var lookback = strategyCfg.GetProperty("lookbackBars").GetInt32();
 var maxSpreadBps = strategyCfg.GetProperty("maximumSpreadBps").GetDecimal();
 var maxDataAge = TimeSpan.FromDays(3650);   // irrelevant when replaying history
 
-var strategyPolicy = new MomentumPolicy(
+var strategyPolicy = new StrategyPolicy(
     strategyCfg.GetProperty("minimumConfidence").GetDecimal(),
     strategyCfg.GetProperty("minimumVolumeRatio").GetDecimal(),
     maxSpreadBps,
     riskCfg.GetProperty("maxPositionNotional").GetDecimal(),
     maxDataAge);
 
-var riskPolicy = new RiskPolicy(
+// The deployed limits are a production safety policy, not an evaluation
+// tool. With $10 positions, $30 exposure and 8 orders a day against $100,
+// a strategy gets 3-4 trades in a quarter — far too few to say anything
+// about whether it has an edge. --unconstrained relaxes the caps so the
+// SIGNAL can be measured; it says nothing about what should be deployed.
+var unconstrained = Environment.GetCommandLineArgs().Contains("--unconstrained");
+
+var riskPolicy = unconstrained
+    ? new RiskPolicy(
+        MaxPositionNotional: startingCash / 4m,
+        MaxConcurrentPositions: 5,
+        MaxDailyRealizedLoss: startingCash,      // no daily stop while measuring
+        MinimumCashReserve: 0m,
+        MaxPortfolioExposure: startingCash,      // allow fully invested
+        MaxOrdersPerSymbolPerDay: 20,
+        MaxTotalOrdersPerDay: 100,
+        MaxDataAge: maxDataAge,
+        RequirePaperMode: true,
+        TradingEnabled: true)
+    : new RiskPolicy(
     riskCfg.GetProperty("maxPositionNotional").GetDecimal(),
     riskCfg.GetProperty("maxConcurrentPositions").GetInt32(),
     riskCfg.GetProperty("maxDailyRealizedLoss").GetDecimal(),
@@ -57,6 +76,9 @@ var riskPolicy = new RiskPolicy(
     // The kill switch is a production control. A backtest that honoured it
     // would reject every proposal and report a flat line.
     TradingEnabled: true);
+
+if (unconstrained)
+    Console.WriteLine("  MEASURING THE SIGNAL: risk caps relaxed. Not a deployable configuration.\n");
 
 // The spread the strategy would actually pay. Bar data carries no bid/ask,
 // so this is an assumption — and it is the assumption the result is most
@@ -91,10 +113,32 @@ foreach (var symbol in symbols.Select(s => s.Trim().ToUpperInvariant()))
 
 if (bars.Count == 0) { Console.Error.WriteLine("No usable data."); return 1; }
 
-var result = new Simulation(strategyPolicy, riskPolicy, assumedSpreadBps)
-    .Run(bars, lookback, startingCash);
+// Every strategy sees identical bars, identical costs and the identical
+// risk engine. The only variable is the premise being tested.
+ITradingStrategy[] strategies =
+[
+    new MomentumCrossoverStrategy(),
+    new RsiMeanReversionStrategy(),
+    new VwapReversionStrategy(),
+    new OpeningRangeBreakoutStrategy(),
+];
 
-Report(result);
+var wanted = Arg("--strategy", "all");
+var selected = wanted == "all"
+    ? strategies
+    : strategies.Where(s => s.Name.Contains(wanted, StringComparison.OrdinalIgnoreCase)).ToArray();
+
+if (selected.Length == 0) { Console.Error.WriteLine($"No strategy matching '{wanted}'."); return 1; }
+
+var results = new List<(ITradingStrategy Strategy, Result Result)>();
+foreach (var s in selected)
+{
+    var r = new Simulation(s, strategyPolicy, riskPolicy, assumedSpreadBps).Run(bars, lookback, startingCash);
+    results.Add((s, r));
+    if (selected.Length == 1) Report(r);
+}
+
+Compare(results, startingCash);
 return 0;
 
 // ── helpers ──────────────────────────────────────────────────────────────
@@ -140,6 +184,60 @@ static async Task<List<Bar>> FetchBarsAsync(HttpClient http, string symbol, stri
     while (pageToken is not null);
 
     return all.OrderBy(b => b.TimestampUtc).ToList();
+}
+
+static void Compare(List<(ITradingStrategy Strategy, Result Result)> results, decimal startingCash)
+{
+    var hold = results[0].Result.BuyAndHoldEquity;
+    Console.WriteLine();
+    Console.WriteLine("══════════════════════════════════════════════════════════════════════════");
+    Console.WriteLine($"  {"strategy",-24} {"return",9} {"vs hold",9} {"trades",7} {"win%",6} {"maxDD",7}");
+    Console.WriteLine("  " + new string('-', 70));
+
+    foreach (var (s, r) in results.OrderByDescending(x => x.Result.FinalEquity))
+    {
+        var ret = (r.FinalEquity - startingCash) / startingCash;
+        var vs = (r.FinalEquity - hold) / startingCash;
+        var trades = RoundTrips(r.Fills);
+        var wins = trades.Count(p => p > 0);
+        decimal peak = startingCash, dd = 0m;
+        foreach (var e in r.EquityCurve) { peak = Math.Max(peak, e); dd = Math.Max(dd, peak == 0 ? 0 : (peak - e) / peak); }
+        var winRate = trades.Count == 0 ? "-" : $"{(decimal)wins / trades.Count:P0}";
+        Console.WriteLine($"  {s.Name,-24} {ret,9:P2} {vs,9:P2} {trades.Count,7} {winRate,6} {dd,7:P2}");
+    }
+
+    Console.WriteLine("  " + new string('-', 70));
+    Console.WriteLine($"  {"buy and hold",-24} {(hold - startingCash) / startingCash,9:P2} {"—",9}");
+    Console.WriteLine("══════════════════════════════════════════════════════════════════════════");
+    Console.WriteLine();
+    Console.WriteLine("  Premises tested:");
+    foreach (var (s, _) in results) Console.WriteLine($"    {s.Name,-24} {s.Premise}");
+    Console.WriteLine();
+    Console.WriteLine("  Momentum and mean reversion are opposite bets. If both look");
+    Console.WriteLine("  profitable on the same data, that is evidence of overfitting");
+    Console.WriteLine("  rather than of two independent edges.");
+}
+
+static List<decimal> RoundTrips(IReadOnlyList<Fill> fills)
+{
+    var trades = new List<decimal>();
+    var open = new Dictionary<string, (decimal Qty, decimal Cost)>(StringComparer.OrdinalIgnoreCase);
+    foreach (var f in fills)
+    {
+        if (f.Action == TradeAction.Buy)
+        {
+            var (q, c) = open.GetValueOrDefault(f.Symbol, (0m, 0m));
+            open[f.Symbol] = (q + f.Quantity, c + f.Notional);
+        }
+        else if (open.TryGetValue(f.Symbol, out var pos) && pos.Qty > 0)
+        {
+            var portion = Math.Min(f.Quantity / pos.Qty, 1m);
+            var cost = pos.Cost * portion;
+            trades.Add(f.Notional - cost);
+            open[f.Symbol] = (pos.Qty - f.Quantity, pos.Cost - cost);
+        }
+    }
+    return trades;
 }
 
 static void Report(Result r)

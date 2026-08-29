@@ -143,6 +143,30 @@ not have known, and is the most common way a backtest lies.
 paying 0.5% round trip must be right by more than 0.5% before it has made
 anything.
 
+### Strategies available
+
+Four premises, deliberately not variations on a theme:
+
+| Strategy | Premise |
+|---|---|
+| `momentum-crossover` | a short average crossing a long one marks a trend that continues |
+| `rsi-mean-reversion` | short-term moves overshoot and revert |
+| `vwap-reversion` | institutional orders are benchmarked to VWAP, so flow pulls price back |
+| `opening-range-breakout` | overnight information resolves in the opening range |
+
+Momentum and mean reversion are opposite bets. If both look profitable on the
+same data, that is evidence of overfitting rather than two independent edges.
+
+```bash
+dotnet run --project src/Backtest -- --days 365 --timeframe 1Day --unconstrained
+```
+
+`--unconstrained` relaxes the risk caps. The deployed limits are a safety
+policy, not an evaluation tool: with $10 positions and 8 orders a day against
+$100, a strategy gets three or four trades in a quarter, which says nothing
+about whether the signal is any good. Use it to measure the signal; never to
+decide what to deploy.
+
 ### Results as of 2026-08-29
 
 The shipped momentum strategy, measured against buying the same five symbols
@@ -168,7 +192,49 @@ invested. That explains some of the shortfall, not all of it — 30% of a
 Sample sizes are small (3–5 round trips per window), so the magnitudes are
 noisy. The direction is not: no configuration beat holding.
 
-> This is the expected result for a moving-average crossover on liquid
-> mega-caps. It is among the most studied signals in existence, and any edge
-> was competed away long ago. The value here is the harness: strategy ideas
-> can now be measured in minutes instead of months.
+### All four strategies, measured
+
+With the risk caps relaxed so each gets enough trades to mean something.
+90 days of 5-minute bars:
+
+| Strategy | Return | vs hold | Trades | Win rate |
+|---|---|---|---|---|
+| rsi-mean-reversion | −0.77% | −1.96% | 17 | 65% |
+| opening-range-breakout | −1.96% | −3.15% | 45 | 29% |
+| vwap-reversion | −3.88% | −5.07% | 39 | 21% |
+| momentum-crossover | −11.42% | −12.61% | 52 | 25% |
+| *buy and hold* | *+1.19%* | — | *0* | — |
+
+Every one loses money in absolute terms once it trades enough to be
+measured. The deployed risk limits were not protecting a good strategy;
+they were hiding a bad one by preventing it from trading.
+
+### The lesson worth keeping: one window proves nothing
+
+On daily bars, RSI mean reversion looked like an edge — until the window
+moved:
+
+| Window | RSI | Buy and hold | |
+|---|---|---|---|
+| 1 year | +39.66% | +28.44% | beat by 11% |
+| 2 years | +50.12% | +62.45% | lost by 12% |
+| 3 years | +41.43% | +147.29% | **lost by 106%** |
+
+Same strategy, same symbols, same costs. The one-year result was the window,
+not the signal — and the window was chosen arbitrarily, which is exactly how
+this trap is usually sprung.
+
+Note also that RSI wins **96% of its trades** across all three windows and
+still loses badly. It takes small gains and sits in cash, missing the large
+moves that produce most of the return. **Win rate is not profitability**, and
+a strategy advertised on win rate is usually hiding this.
+
+`vwap-reversion` and `opening-range-breakout` correctly produce zero trades
+on daily bars: both are intraday concepts and have nothing to say about a
+daily series. A strategy that silently traded anyway would be the bug.
+
+> None of this says short-term trading cannot work. It says these four
+> well-known technical patterns, on the most efficiently priced stocks in the
+> world, do not survive costs. That is the expected result, and it took
+> minutes to establish rather than months of paper trading or a funded
+> account.
