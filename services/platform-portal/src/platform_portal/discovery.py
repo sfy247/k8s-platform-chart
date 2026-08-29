@@ -20,6 +20,8 @@ ANN_ICON = "portal.sfy247.io/icon"
 
 @dataclass(slots=True)
 class App:
+    # Set for apps that serve no HTTP to the outside world. They still get a
+    # tile and a health check; they simply have nothing to link to.
     name: str
     namespace: str
     url: str
@@ -30,6 +32,7 @@ class App:
     description: str = ""
     icon: str = ""
     is_platform: bool = False
+    internal: bool = False
     # filled in by the health checker
     status: str = "unknown"
     status_code: int | None = None
@@ -125,3 +128,60 @@ def apps_from_ingresses(
             )
         )
     return sorted(apps, key=lambda a: (a.is_platform, a.namespace, a.name))
+
+
+def apps_from_services(
+    services: list[dict[str, Any]],
+    *,
+    already_seen: set[tuple[str, str]],
+    label_selector: str,
+    default_health_path: str,
+    platform_namespaces: list[str],
+) -> list[App]:
+    """Applications that have a Service but no Ingress — workers, mostly.
+
+    They cannot be linked to, but "is it running" is still worth answering,
+    and an overview that silently omits half the platform is misleading.
+    """
+    key, _, value = label_selector.partition("=")
+    apps: list[App] = []
+
+    for service in services:
+        meta = service.get("metadata", {})
+        namespace, name = meta.get("namespace", ""), meta.get("name", "")
+        if (namespace, name) in already_seen:
+            continue
+
+        labels = meta.get("labels", {}) or {}
+        if value and labels.get(key) != value:
+            continue
+
+        annotations = meta.get("annotations", {}) or {}
+        if annotations.get(ANN_HIDE, "").lower() == "true":
+            continue
+
+        ports = service.get("spec", {}).get("ports") or []
+        if not ports:
+            continue
+        port = ports[0].get("port")
+        if not port:
+            continue
+
+        apps.append(
+            App(
+                name=labels.get("app.kubernetes.io/instance", name),
+                namespace=namespace,
+                url="",                      # nothing to link to
+                host=f"{name}.{namespace}.svc.cluster.local",
+                service=name,
+                service_port=port,
+                health_path=annotations.get(ANN_HEALTH_PATH, default_health_path),
+                description=annotations.get(ANN_DESCRIPTION, ""),
+                icon=annotations.get(ANN_ICON, ""),
+                is_platform=namespace in platform_namespaces,
+                internal=True,
+                labels=labels,
+            )
+        )
+
+    return apps

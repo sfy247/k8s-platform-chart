@@ -43,6 +43,11 @@ class Settings:
     refresh_seconds: int = 30
     probe_timeout_seconds: float = 3.0
     default_health_path: str = "/healthz"
+    # Services carrying this label are treated as applications even when they
+    # have no Ingress. Without it a worker — something that does real work but
+    # serves no page — is invisible to the portal, which is the opposite of
+    # what a platform overview is for.
+    internal_app_label: str = "app.kubernetes.io/name=generic-app"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -64,4 +69,6 @@ class Settings:
             refresh_seconds=_int("REFRESH_SECONDS", 30),
             probe_timeout_seconds=float(os.environ.get("PROBE_TIMEOUT_SECONDS", "3.0")),
             default_health_path=os.environ.get("DEFAULT_HEALTH_PATH", "/healthz"),
+            internal_app_label=os.environ.get(
+                "INTERNAL_APP_LABEL", "app.kubernetes.io/name=generic-app"),
         )

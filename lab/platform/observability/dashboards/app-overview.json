@@ -148,10 +148,12 @@
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "No ingress. This app does not serve HTTP traffic \u2014 it is a worker, so request rate, errors and latency do not apply to it. Its health is in the workload and log rows below."
         },
         "overrides": []
-      }
+      },
+      "description": "Empty for apps without an ingress; that is expected for workers."
     },
     {
       "type": "stat",
@@ -211,10 +213,12 @@
                 "value": 0.05
               }
             ]
-          }
+          },
+          "noValue": "No ingress. This app does not serve HTTP traffic \u2014 it is a worker, so request rate, errors and latency do not apply to it. Its health is in the workload and log rows below."
         },
         "overrides": []
-      }
+      },
+      "description": "Empty for apps without an ingress; that is expected for workers."
     },
     {
       "type": "stat",
@@ -274,10 +278,12 @@
                 "value": 1
               }
             ]
-          }
+          },
+          "noValue": "No ingress. This app does not serve HTTP traffic \u2014 it is a worker, so request rate, errors and latency do not apply to it. Its health is in the workload and log rows below."
         },
         "overrides": []
-      }
+      },
+      "description": "Empty for apps without an ingress; that is expected for workers."
     },
     {
       "type": "stat",
@@ -382,7 +388,8 @@
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "No ingress. This app does not serve HTTP traffic \u2014 it is a worker, so request rate, errors and latency do not apply to it. Its health is in the workload and log rows below."
         },
         "overrides": []
       },
@@ -396,7 +403,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "Empty for apps without an ingress; that is expected for workers."
     },
     {
       "type": "timeseries",
@@ -464,7 +472,8 @@
                 "value": null
               }
             ]
-          }
+          },
+          "noValue": "No ingress. This app does not serve HTTP traffic \u2014 it is a worker, so request rate, errors and latency do not apply to it. Its health is in the workload and log rows below."
         },
         "overrides": []
       },
@@ -478,7 +487,8 @@
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "Empty for apps without an ingress; that is expected for workers."
     },
     {
       "type": "row",
