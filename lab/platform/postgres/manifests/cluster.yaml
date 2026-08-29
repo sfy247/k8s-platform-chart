@@ -63,12 +63,19 @@ spec:
   # Add a role here, add a Database in databases.yaml, run make db-user.
   managed:
     roles:
+      # connectionLimit and inherit are defaulted by the operator. Declaring
+      # them here keeps git identical to the live spec, so Argo does not see a
+      # permanent diff. The Application's ignoreDifferences covers only
+      # roles[0] by index, which silently breaks for every role added after
+      # the first.
       - name: trading_app
         ensure: present
         login: true
         superuser: false
         createdb: false
         createrole: false
+        inherit: true
+        connectionLimit: -1
         passwordSecret:
           name: pg-trading-credentials
       - name: vaultwarden_app
@@ -77,5 +84,7 @@ spec:
         superuser: false
         createdb: false
         createrole: false
+        inherit: true
+        connectionLimit: -1
         passwordSecret:
           name: pg-vaultwarden-credentials
