@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using ClaudeTradingAgent.MarketData;
+using ClaudeTradingAgent.Persistence;
 using ClaudeTradingAgent.RiskManagement;
 using ClaudeTradingAgent.Strategy;
 using ClaudeTradingAgent.TradingAgent.Configuration;
@@ -38,6 +39,10 @@ public sealed class TradingWorker(
         "trading_agent_market_open", "1 when the market is open, 0 when closed.");
     private static readonly Gauge TradingEnabled = Metrics.CreateGauge(
         "trading_agent_trading_enabled", "1 when order submission is permitted.");
+    private static readonly Counter AuditFailures = Metrics.CreateCounter(
+        "trading_agent_audit_failures_total", "Decisions that could not be persisted.");
+
+    private static readonly string PodName = Environment.MachineName;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -89,6 +94,7 @@ public sealed class TradingWorker(
         var accounts = scope.ServiceProvider.GetRequiredService<AccountSnapshotProvider>();
         var strategy = scope.ServiceProvider.GetRequiredService<MomentumStrategy>();
         var coordinator = scope.ServiceProvider.GetRequiredService<TradingCoordinator>();
+        var store = scope.ServiceProvider.GetRequiredService<IDecisionStore>();
 
         var clock = await market.GetMarketClockAsync(cancellationToken);
         MarketOpen.Set(clock.IsOpen ? 1 : 0);
@@ -114,7 +120,7 @@ public sealed class TradingWorker(
         {
             cancellationToken.ThrowIfCancellationRequested();
             var outcome = await EvaluateSymbolAsync(
-                symbol, clock, account, ordersToday, openOrderSymbols, market, strategy, coordinator, cancellationToken);
+                symbol, clock, account, ordersToday, openOrderSymbols, market, strategy, coordinator, store, cancellationToken);
             Evaluations.WithLabels(symbol, outcome).Inc();
             evaluated++;
         }
@@ -132,6 +138,7 @@ public sealed class TradingWorker(
         IMarketDataProvider market,
         MomentumStrategy strategy,
         TradingCoordinator coordinator,
+        IDecisionStore store,
         CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
@@ -150,6 +157,8 @@ public sealed class TradingWorker(
             // Fail closed. Never infer a price, a spread or a volume.
             logger.LogInformation(
                 "HOLD {Symbol}: market data unusable — {Reason}", symbol, ex.Message);
+            await PersistAsync(store, DecisionRecord.NoData(
+                symbol, ex.Message, policies.Risk.TradingEnabled, clock.IsOpen, PodName), cancellationToken);
             return "no_data";
         }
 
@@ -170,6 +179,17 @@ public sealed class TradingWorker(
         var result = await coordinator.ProcessAsync(
             proposal, accountState, policies.Risk, policies.Allowlist, now, cancellationToken);
 
+        await PersistAsync(store, DecisionRecord.From(
+            proposal,
+            new RiskManagement.RiskDecision(result.Status == "SUBMITTED", result.Code, result.Message,
+                                            result.BrokerOrder is null ? null : new RiskManagement.ApprovedOrder(
+                                                result.BrokerOrder.ClientOrderId, proposal.Symbol,
+                                                proposal.Action, proposal.ProposedNotional, now)),
+            result.BrokerOrder,
+            policies.Risk.TradingEnabled,
+            clock.IsOpen,
+            PodName), cancellationToken);
+
         if (result.Status == "SUBMITTED")
         {
             logger.LogWarning(
@@ -184,6 +204,25 @@ public sealed class TradingWorker(
             result.Status, symbol, result.Code, result.Message, proposal.Action, proposal.Confidence);
 
         return result.Code.ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Persist a decision without letting a storage failure stop trading
+    /// evaluation. The failure is counted and logged so it is visible rather
+    /// than silent; with trading disabled, losing an audit row is degraded
+    /// rather than unsafe.
+    /// </summary>
+    private async Task PersistAsync(IDecisionStore store, DecisionRecord record, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await store.RecordAsync(record, cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            AuditFailures.Inc();
+            logger.LogError(ex, "Could not persist the decision for {Symbol}.", record.Symbol);
+        }
     }
 
     private static MomentumInputs BuildInputs(string symbol, QuoteSnapshot quote, IReadOnlyList<Bar> bars)

@@ -24,6 +24,15 @@ public sealed record AgentOptions
     public int EvaluationIntervalSeconds { get; init; } = 60;
     public int BrokerTimeoutSeconds { get; init; } = 10;
 
+    /// <summary>
+    /// Postgres connection string for the decision audit. Supplied by the
+    /// trading-db Secret as ConnectionStrings__Default. Empty means the
+    /// agent runs without durable history.
+    /// </summary>
+    public string DatabaseConnectionString { get; init; } = string.Empty;
+
+    public bool HasDatabase => !string.IsNullOrWhiteSpace(DatabaseConnectionString);
+
     public bool HasCredentials =>
         !string.IsNullOrWhiteSpace(AlpacaApiKeyId) && !string.IsNullOrWhiteSpace(AlpacaApiSecretKey);
 

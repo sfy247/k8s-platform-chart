@@ -1,5 +1,6 @@
 using ClaudeTradingAgent.Execution;
 using ClaudeTradingAgent.MarketData;
+using ClaudeTradingAgent.Persistence;
 using ClaudeTradingAgent.RiskManagement;
 using ClaudeTradingAgent.Strategy;
 using ClaudeTradingAgent.TradingAgent;
@@ -7,6 +8,7 @@ using ClaudeTradingAgent.TradingAgent.Configuration;
 using ClaudeTradingAgent.TradingAgent.Hosting;
 using ClaudeTradingAgent.TradingAgent.Observability;
 using Microsoft.Extensions.Logging.Console;
+using Npgsql;
 using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -38,6 +40,7 @@ var options = new AgentOptions
     SymbolConfigPath = builder.Configuration["SYMBOL_CONFIG_PATH"] ?? "config/symbols.json",
     EvaluationIntervalSeconds = builder.Configuration.GetValue("EVALUATION_INTERVAL_SECONDS", 60),
     BrokerTimeoutSeconds = builder.Configuration.GetValue("BROKER_TIMEOUT_SECONDS", 10),
+    DatabaseConnectionString = builder.Configuration.GetConnectionString("Default") ?? string.Empty,
 };
 
 var configErrors = options.Validate();
@@ -55,6 +58,20 @@ builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(policies);
 builder.Services.AddSingleton<AgentState>();
 builder.Services.AddSingleton<MomentumStrategy>();
+
+// ── Decision audit ───────────────────────────────────────────────────────
+// Every evaluation is recorded, including the ones that produced no trade.
+// Without a connection string the agent still runs; it simply keeps no
+// history beyond the log retention window.
+if (options.HasDatabase)
+{
+    builder.Services.AddSingleton(_ => NpgsqlDataSource.Create(options.DatabaseConnectionString));
+    builder.Services.AddSingleton<IDecisionStore, PostgresDecisionStore>();
+}
+else
+{
+    builder.Services.AddSingleton<IDecisionStore, NullDecisionStore>();
+}
 builder.Services.AddSingleton<RiskEngine>();
 
 // ── Broker clients ───────────────────────────────────────────────────────
@@ -105,12 +122,31 @@ app.MapGet("/", (AgentState state, AgentOptions o, TradingPolicySet p) => Result
     service = "trading-agent",
     mode = o.TradingMode,
     tradingEnabled = p.Risk.TradingEnabled,
+    auditEnabled = o.HasDatabase,
     strategy = p.StrategyName,
     symbols = p.Allowlist.OrderBy(s => s, StringComparer.Ordinal),
     state = state.Snapshot(),
 }));
 
 app.MapMetrics();   // /metrics
+
+// Create the audit schema before the worker starts writing to it.
+using (var scope = app.Services.CreateScope())
+{
+    var store = scope.ServiceProvider.GetRequiredService<IDecisionStore>();
+    var startupLogger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+    try
+    {
+        await store.InitialiseAsync();
+    }
+    catch (Exception ex)
+    {
+        // Do not block startup: with trading disabled, losing the audit
+        // trail is a degraded state rather than an unsafe one. Enabling
+        // trading changes that calculus — see the note in AgentOptions.
+        startupLogger.LogError(ex, "Could not prepare the decision audit store; decisions will not be persisted.");
+    }
+}
 
 return await RunAsync(app);
 
