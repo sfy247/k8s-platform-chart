@@ -365,8 +365,208 @@ def platform_health() -> dict:
                      ["lab", "platform"], p)
 
 
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# 4. PostgreSQL — the shared database, metrics and logs on one page
+# ══════════════════════════════════════════════════════════════════════════
+LOKI = "${ds_loki}"
+PG = 'job="data/lab-pg"'
+
+
+def loki_tgt(expr: str, legend: str = "", ref: str = "A") -> dict:
+    return {
+        "datasource": {"type": "loki", "uid": LOKI},
+        "editorMode": "code", "expr": expr, "legendFormat": legend,
+        "queryType": "range", "refId": ref,
+    }
+
+
+def logs_panel(title, expr, x, y, w=24, h=12, desc=""):
+    return {
+        "type": "logs", "title": title, "description": desc,
+        "gridPos": {"h": h, "w": w, "x": x, "y": y},
+        "datasource": {"type": "loki", "uid": LOKI},
+        "targets": [loki_tgt(expr)],
+        "options": {
+            "showTime": True, "sortOrder": "Descending", "wrapLogMessage": True,
+            "enableLogDetails": True, "dedupStrategy": "none", "prettifyLogMessage": True,
+        },
+    }
+
+
+def loki_ts(title, targets, x, y, w=12, h=7, desc="", stack=True):
+    return {
+        "type": "timeseries", "title": title, "description": desc,
+        "gridPos": {"h": h, "w": w, "x": x, "y": y},
+        "datasource": {"type": "loki", "uid": LOKI},
+        "targets": targets,
+        "fieldConfig": {"defaults": {"custom": {
+            "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 0,
+            "stacking": {"mode": "normal" if stack else "none"}}}, "overrides": []},
+        "options": {"legend": {"displayMode": "list", "placement": "bottom", "showLegend": True},
+                    "tooltip": {"mode": "multi"}},
+    }
+
+
+def postgres() -> dict:
+    p = []
+
+    # ── Availability ──────────────────────────────────────────────────────
+    p.append(row("Availability", 0))
+    p.append(stat("Cluster up", f'max(cnpg_collector_up{{{PG}}})', "short", 0, 1,
+                  thresholds=steps(("red", None), ("green", 1)),
+                  desc="1 when the metrics collector can reach PostgreSQL. 0 means the database is not answering, whatever the pod says."))
+    p.append(stat("Instances ready", f'count(cnpg_collector_up{{{PG}}} == 1)', "short", 4, 1,
+                  thresholds=steps(("red", None), ("green", 1))))
+    p.append(stat("PostgreSQL version", f'max(cnpg_collector_postgres_version{{{PG}}})', "short", 8, 1,
+                  decimals=2, thresholds=steps(("text", None))))
+    p.append(stat("Uptime", f'time() - max(cnpg_pg_postmaster_start_time{{{PG}}})', "s", 12, 1,
+                  desc="Time since the postmaster started. A sudden reset means a restart — check the logs below."))
+    p.append(stat("Sync replicas", f'max(cnpg_collector_sync_replicas{{{PG}}}) or vector(0)', "short", 16, 1,
+                  desc="0 is expected on a single-instance lab cluster; it means there is no replica to fail over to."))
+    p.append(stat("Switchover required", f'max(cnpg_collector_manual_switchover_required{{{PG}}}) or vector(0)',
+                  "short", 20, 1, thresholds=steps(("green", None), ("red", 1)),
+                  desc="1 means the operator needs a human to promote an instance."))
+
+    # ── Connections ───────────────────────────────────────────────────────
+    p.append(row("Connections — the first thing to exhaust", 5))
+    p.append(gauge("Connections used",
+                   f'sum(cnpg_backends_total{{{PG}}}) / max(cnpg_pg_settings_setting{{{PG}, name="max_connections"}})',
+                   0, 6, w=6, h=6,
+                   desc="Against max_connections. Applications with oversized pools hit this long before the database is actually busy, and the failure looks like the app being down."))
+    p.append(ts("Backends by database", [
+        tgt(f'sum by (datname) (cnpg_backends_total{{{PG}}})', "{{datname}}"),
+        tgt(f'max(cnpg_pg_settings_setting{{{PG}, name="max_connections"}})', "max_connections", "B"),
+    ], "short", 6, 6, w=10, h=6))
+    p.append(ts("Waiting backends", [
+        tgt(f'sum by (datname) (cnpg_backends_waiting_total{{{PG}}})', "{{datname}}"),
+    ], "short", 16, 6, w=8, h=6,
+        desc="Backends blocked on a lock. A sustained non-zero value is contention, not load."))
+
+    # ── Throughput ────────────────────────────────────────────────────────
+    p.append(row("Throughput", 12))
+    p.append(ts("Transactions per second", [
+        tgt(f'sum by (datname) (rate(cnpg_pg_stat_database_xact_commit{{{PG}}}[5m]))', "{{datname}} commit"),
+        tgt(f'sum by (datname) (rate(cnpg_pg_stat_database_xact_rollback{{{PG}}}[5m]))', "{{datname}} rollback", "B"),
+    ], "short", 0, 13, w=8,
+        desc="A rollback rate that tracks the commit rate usually means the application is failing, not the database."))
+    p.append(ts("Rows read and written", [
+        tgt(f'sum(rate(cnpg_pg_stat_database_tup_fetched{{{PG}}}[5m]))', "fetched"),
+        tgt(f'sum(rate(cnpg_pg_stat_database_tup_returned{{{PG}}}[5m]))', "returned", "B"),
+        tgt(f'sum(rate(cnpg_pg_stat_database_tup_inserted{{{PG}}}[5m]))', "inserted", "C"),
+        tgt(f'sum(rate(cnpg_pg_stat_database_tup_updated{{{PG}}}[5m]))', "updated", "D"),
+        tgt(f'sum(rate(cnpg_pg_stat_database_tup_deleted{{{PG}}}[5m]))', "deleted", "E"),
+    ], "short", 8, 13, w=8,
+        desc="'returned' far exceeding 'fetched' is the signature of sequential scans — rows examined but discarded."))
+    p.append(ts("Deadlocks and conflicts", [
+        tgt(f'sum by (datname) (increase(cnpg_pg_stat_database_deadlocks{{{PG}}}[15m]))', "{{datname}} deadlocks"),
+        tgt(f'sum by (datname) (increase(cnpg_pg_stat_database_conflicts{{{PG}}}[15m]))', "{{datname}} conflicts", "B"),
+    ], "short", 16, 13, w=8,
+        desc="Any deadlock is a bug in lock ordering, not a capacity problem. Raising resources will not help."))
+
+    # ── Cache and I/O ─────────────────────────────────────────────────────
+    p.append(row("Cache and I/O", 21))
+    p.append(gauge("Cache hit ratio",
+                   f'sum(rate(cnpg_pg_stat_database_blks_hit{{{PG}}}[5m])) / '
+                   f'clamp_min(sum(rate(cnpg_pg_stat_database_blks_hit{{{PG}}}[5m])) + '
+                   f'sum(rate(cnpg_pg_stat_database_blks_read{{{PG}}}[5m])), 0.001)',
+                   0, 22, w=6, h=6,
+                   thresholds=steps(("red", None), ("orange", 0.90), ("green", 0.99)),
+                   desc="Share of block reads served from shared_buffers. Below ~0.99 on a steady workload means the working set no longer fits in memory."))
+    p.append(ts("Block reads: cache vs disk", [
+        tgt(f'sum(rate(cnpg_pg_stat_database_blks_hit{{{PG}}}[5m]))', "from cache"),
+        tgt(f'sum(rate(cnpg_pg_stat_database_blks_read{{{PG}}}[5m]))', "from disk", "B"),
+    ], "short", 6, 22, w=10, h=6))
+    p.append(ts("Temporary files", [
+        tgt(f'sum(rate(cnpg_pg_stat_database_temp_bytes{{{PG}}}[5m]))', "bytes/s"),
+    ], "Bps", 16, 22, w=8, h=6,
+        desc="Queries spilling to disk because work_mem was too small for the sort or hash."))
+
+    # ── Storage ───────────────────────────────────────────────────────────
+    p.append(row("Storage and WAL", 28))
+    p.append(ts("Database size", [
+        tgt(f'cnpg_pg_database_size_bytes{{{PG}}}', "{{datname}}"),
+    ], "bytes", 0, 29, w=8))
+    p.append(ts("Volume usage", [
+        tgt('kubelet_volume_stats_used_bytes{namespace="data"} / kubelet_volume_stats_capacity_bytes{namespace="data"}',
+            "{{persistentvolumeclaim}}"),
+    ], "percentunit", 8, 29, w=8, maxv=1,
+        desc="A full volume stops writes. There are no backups configured, so recovering from that means losing data."))
+    p.append(ts("WAL generated", [
+        tgt(f'sum(rate(cnpg_collector_wal_bytes{{{PG}}}[5m]))', "bytes/s"),
+    ], "Bps", 16, 29, w=8))
+    p.append(ts("Checkpoints", [
+        tgt(f'sum(increase(cnpg_pg_stat_checkpointer_checkpoints_timed{{{PG}}}[15m]))', "scheduled"),
+        tgt(f'sum(increase(cnpg_pg_stat_checkpointer_checkpoints_req{{{PG}}}[15m]))', "requested", "B"),
+    ], "short", 0, 37, w=12,
+        desc="Requested checkpoints outnumbering scheduled ones means max_wal_size is too small for the write rate."))
+    p.append(ts("Transaction ID age", [
+        tgt(f'max by (datname) (cnpg_pg_database_xid_age{{{PG}}})', "{{datname}}"),
+    ], "short", 12, 37, w=12,
+        desc="Distance to transaction ID wraparound. Autovacuum keeps this bounded; sustained growth toward 2 billion is an emergency, not a warning."))
+
+    # ── Logs ──────────────────────────────────────────────────────────────
+    # CNPG wraps each PostgreSQL log line in JSON with the database's own
+    # fields nested under `record`. Loki's json parser flattens that with
+    # underscores, so the fields are record_error_severity, record_message
+    # and so on — not record.error_severity.
+    p.append(row("Logs — from the database itself", 45))
+    p.append(loki_ts("Log volume by severity", [
+        loki_tgt('sum by (record_error_severity) (count_over_time('
+                 '{app="lab-pg", container="postgres"} | json | logger="postgres" [$__auto]))',
+                 "{{record_error_severity}}"),
+    ], 0, 46, w=12,
+        desc="PostgreSQL's own severities: LOG, WARNING, ERROR, FATAL, PANIC."))
+    p.append(loki_ts("Errors by SQLSTATE", [
+        loki_tgt('sum by (record_sql_state_code) (count_over_time('
+                 '{app="lab-pg", container="postgres"} | json | logger="postgres" '
+                 '| record_error_severity =~ "ERROR|FATAL|PANIC" [$__auto]))',
+                 "{{record_sql_state_code}}"),
+    ], 12, 46, w=12,
+        desc="SQLSTATE is the useful axis: 23505 unique violation, 40P01 deadlock, 53300 too many connections, 42P01 undefined table."))
+    p.append(logs_panel(
+        "Database log",
+        '{app="lab-pg", container="postgres"} | json | logger="postgres" '
+        '| line_format "{{.record_error_severity}} [{{.record_database_name}}] {{.record_message}}"',
+        0, 53, h=12,
+        desc="Every line PostgreSQL wrote. Open one for the full detail — session id, query, SQLSTATE, hint."))
+    p.append(logs_panel(
+        "Errors only",
+        '{app="lab-pg", container="postgres"} | json | logger="postgres" '
+        '| record_error_severity =~ "ERROR|FATAL|PANIC" '
+        '| line_format "{{.record_error_severity}} [{{.record_sql_state_code}}] {{.record_message}}'
+        '{{if .record_query}} — query: {{.record_query}}{{end}}"',
+        0, 65, h=10,
+        desc="Errors with the statement that caused them. This is usually the fastest route from an application incident to its cause."))
+    p.append(logs_panel(
+        "Slow queries",
+        '{app="lab-pg", container="postgres"} | json | logger="postgres" '
+        '| record_message =~ "(?i)duration:.*" '
+        '| line_format "[{{.record_database_name}}] {{.record_message}}"',
+        0, 75, h=8,
+        desc="log_min_duration_statement is 1000ms, so anything appearing here took over a second."))
+    p.append(logs_panel(
+        "Operator log — failovers, switchovers, reconciliation",
+        '{app="lab-pg"} | json | logger!="postgres"',
+        0, 83, h=8,
+        desc="CloudNativePG's own decisions, separate from anything PostgreSQL said."))
+
+    return dashboard(
+        "lab-postgres", "PostgreSQL",
+        "The shared database: availability, connections, throughput, cache, storage and logs.",
+        ["lab", "database", "postgres"], p,
+        templating=[
+            {"name": "ds_prom", "label": "Metrics source", "type": "datasource",
+             "query": "prometheus", "current": {}, "hide": 0, "refresh": 1},
+            {"name": "ds_loki", "label": "Logs source", "type": "datasource",
+             "query": "loki", "current": {}, "hide": 0, "refresh": 1},
+        ])
+
+
 if __name__ == "__main__":
     print("generating dashboards:")
     write(cluster_overview(), "cluster-overview.json")
     write(fleet(), "fleet.json")
     write(platform_health(), "platform-health.json")
+    write(postgres(), "postgres.json")
