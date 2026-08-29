@@ -40,7 +40,7 @@ def steps(*pairs) -> dict:
     return {"mode": "absolute", "steps": [{"color": c, "value": v} for c, v in pairs]}
 
 
-def stat(title, expr, unit, x, y, w=4, h=4, decimals=None, thresholds=None, desc=""):
+def stat(title, expr, unit, x, y, w=4, h=4, decimals=None, thresholds=None, desc="", no_value=None):
     return {
         "type": "stat", "title": title, "description": desc,
         "gridPos": {"h": h, "w": w, "x": x, "y": y},
@@ -54,13 +54,14 @@ def stat(title, expr, unit, x, y, w=4, h=4, decimals=None, thresholds=None, desc
             "defaults": {
                 "unit": unit, "decimals": decimals,
                 "thresholds": thresholds or steps(("text", None)),
+                **({"noValue": no_value} if no_value else {}),
             },
             "overrides": [],
         },
     }
 
 
-def ts(title, targets, unit, x, y, w=12, h=8, desc="", stack=False, maxv=None, minv=0):
+def ts(title, targets, unit, x, y, w=12, h=8, desc="", stack=False, maxv=None, minv=0, no_value=None):
     return {
         "type": "timeseries", "title": title, "description": desc,
         "gridPos": {"h": h, "w": w, "x": x, "y": y},

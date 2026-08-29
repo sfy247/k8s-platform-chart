@@ -15,6 +15,7 @@ COPY src/RiskManagement/RiskManagement.csproj     src/RiskManagement/
 COPY src/Execution/Execution.csproj               src/Execution/
 COPY src/Portfolio/Portfolio.csproj               src/Portfolio/
 COPY src/Persistence/Persistence.csproj       src/Persistence/
+COPY src/Backtest/Backtest.csproj             src/Backtest/
 COPY src/TradingAgent/TradingAgent.csproj         src/TradingAgent/
 COPY tests/TradingAgent.Tests.csproj              tests/
 RUN dotnet restore ClaudeTradingAgent.sln

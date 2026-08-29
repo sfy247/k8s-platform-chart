@@ -31,7 +31,9 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_late
 
 from platform_portal import __version__
 from platform_portal.config import Settings
-from platform_portal.discovery import App, apps_from_ingresses, service_port_index
+from platform_portal.discovery import (
+    App, apps_from_ingresses, apps_from_services, service_port_index,
+)
 from platform_portal.health import probe_all
 from platform_portal.kube import KubeClient, NotInCluster
 
@@ -98,6 +100,18 @@ async def refresh(client: KubeClient) -> None:
         platform_namespaces=settings.platform_namespaces,
         port_index=service_port_index(services),
     )
+
+    # Apps that serve no HTTP still belong on an overview of what is running.
+    linked = {(a.namespace, a.service) for a in apps}
+    apps += apps_from_services(
+        services,
+        already_seen=linked,
+        label_selector=settings.internal_app_label,
+        default_health_path=settings.default_health_path,
+        platform_namespaces=settings.platform_namespaces,
+    )
+    apps.sort(key=lambda a: (a.is_platform, a.internal, a.namespace, a.name))
+
     apps = await probe_all(apps, settings.probe_timeout_seconds)
 
     state.apps = apps
@@ -188,6 +202,7 @@ async def api_apps() -> JSONResponse:
                     "latency_ms": a.latency_ms,
                     "detail": a.detail,
                     "platform": a.is_platform,
+                    "internal": a.internal,
                 }
                 for a in state.apps
             ],

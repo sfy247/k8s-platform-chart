@@ -121,3 +121,57 @@ def test_unresolvable_named_port_falls_back_to_80() -> None:
         platform_namespaces=[], port_index={},
     )
     assert apps[0].service_port == 80
+
+
+def svc(name, ns, port=80, labels=None, annotations=None):
+    return {
+        "metadata": {"name": name, "namespace": ns,
+                     "labels": labels or {"app.kubernetes.io/name": "generic-app",
+                                          "app.kubernetes.io/instance": name},
+                     "annotations": annotations or {}},
+        "spec": {"ports": [{"port": port, "name": "http"}]},
+    }
+
+
+def build_internal(services, seen=None):
+    from platform_portal.discovery import apps_from_services
+    return apps_from_services(
+        services,
+        already_seen=seen or set(),
+        label_selector="app.kubernetes.io/name=generic-app",
+        default_health_path="/healthz",
+        platform_namespaces=PLATFORM_NS,
+    )
+
+
+def test_a_worker_with_no_ingress_still_appears() -> None:
+    apps = build_internal([svc("trading-agent", "demo", 80)])
+    assert len(apps) == 1
+    assert apps[0].internal is True
+    assert apps[0].url == ""          # nothing to link to
+    assert apps[0].probe_url == "http://trading-agent.demo.svc.cluster.local:80/healthz"
+
+
+def test_an_app_that_already_has_an_ingress_is_not_duplicated() -> None:
+    seen = {("demo", "hello-python")}
+    apps = build_internal([svc("hello-python", "demo")], seen=seen)
+    assert apps == []
+
+
+def test_services_without_the_platform_label_are_ignored() -> None:
+    # Otherwise every Service in the cluster would become a tile.
+    apps = build_internal([svc("kube-dns", "kube-system", labels={"k8s-app": "kube-dns"})])
+    assert apps == []
+
+
+def test_the_hide_annotation_works_for_workers_too() -> None:
+    apps = build_internal([svc("secret-worker", "demo",
+                               annotations={"portal.sfy247.io/hide": "true"})])
+    assert apps == []
+
+
+def test_a_service_with_no_ports_is_skipped() -> None:
+    bad = {"metadata": {"name": "x", "namespace": "demo",
+                        "labels": {"app.kubernetes.io/name": "generic-app"}, "annotations": {}},
+           "spec": {"ports": []}}
+    assert build_internal([bad]) == []

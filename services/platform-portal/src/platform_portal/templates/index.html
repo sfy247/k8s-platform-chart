@@ -55,6 +55,13 @@
     color: var(--muted); font-size: .76rem;
   }
   .ns { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .card.internal { cursor: default; }
+  .card.internal:hover { background: var(--card); transform: none; }
+  .tag {
+    font-size: .68rem; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); border: 1px solid var(--border);
+    border-radius: 4px; padding: .05rem .3rem;
+  }
   .empty { color: var(--muted); padding: 2rem; text-align: center; border: 1px dashed var(--border); border-radius: 9px; }
   .err { background: rgba(248,81,73,.12); border: 1px solid var(--bad); padding: .7rem 1rem; border-radius: 8px; margin-bottom: 1.25rem; font-size: .86rem; }
 </style>
@@ -75,12 +82,13 @@
   {% if apps %}
   <div class="grid">
     {% for a in apps %}
-    <a class="card {{ a.status }}" href="{{ a.url }}" target="_blank" rel="noopener">
+    {# A worker has no URL, so its tile is not a link — but it still shows health. #}
+    {% if a.internal %}<div class="card internal {{ a.status }}">{% else %}<a class="card {{ a.status }}" href="{{ a.url }}" target="_blank" rel="noopener">{% endif %}
       <div class="row">
         <span class="name">{% if a.icon %}{{ a.icon }} {% endif %}{{ a.name }}</span>
         <span class="dot" title="{{ a.status }}{% if a.detail %} — {{ a.detail }}{% endif %}"></span>
       </div>
-      <div class="host">{{ a.host }}</div>
+      <div class="host">{% if a.internal %}<span class="tag">internal</span> {{ a.host }}{% else %}{{ a.host }}{% endif %}</div>
       {% if a.description %}<div class="desc">{{ a.description }}</div>{% endif %}
       <div class="foot">
         <span class="ns">{{ a.namespace }}</span>
@@ -89,7 +97,7 @@
           {%- else -%}{{ a.status }}{% if a.detail %} · {{ a.detail }}{% endif %}{%- endif -%}
         </span>
       </div>
-    </a>
+    {% if a.internal %}</div>{% else %}</a>{% endif %}
     {% endfor %}
   </div>
   {% else %}
@@ -121,8 +129,9 @@
 
   <h2>About</h2>
   <div class="meta">
-    Apps are discovered from Kubernetes Ingress objects — nothing is hardcoded, so a new app
-    appears here on its next refresh. Health is probed inside the cluster against each app's
+    Apps are discovered from Kubernetes Ingress objects, plus Services deployed by the platform
+    chart that have no Ingress — so workers appear too, marked <span class="tag">internal</span>
+    and without a link. Nothing is hardcoded; a new app appears on the next refresh. Health is probed inside the cluster against each app's
     Service, which tests the application rather than the ingress path.
     <br>platform-portal v{{ version }}
   </div>
