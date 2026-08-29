@@ -22,3 +22,18 @@ spec:
   # Keep the database if this resource is deleted. Deleting a manifest
   # should never silently destroy data.
   databaseReclaimPolicy: retain
+---
+# Vaultwarden's vault storage. Postgres rather than SQLite on local-path so
+# the vault survives node loss and can be backed up with the rest of the
+# cluster — losing this database means losing every stored credential.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: vaultwarden
+  namespace: data
+spec:
+  name: vaultwarden
+  owner: vaultwarden_app
+  cluster:
+    name: lab-pg
+  databaseReclaimPolicy: retain
