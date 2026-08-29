@@ -1,0 +1,8 @@
+# Platform component — read by the lab-platform ApplicationSet.
+# Keep it flat: Argo CD's git generator parses it directly.
+name: vaultwarden
+namespace: vaultwarden
+chartRepo: https://guerzon.github.io/vaultwarden
+chart: vaultwarden
+version: "0.46.1"
+values: lab/platform/vaultwarden/values/vaultwarden.yaml

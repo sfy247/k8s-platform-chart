@@ -1,0 +1,67 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Vaultwarden — a Bitwarden-compatible vault, so the `bw` CLI can fetch
+# credentials at runtime instead of them living in files or shell history.
+#
+# NOTHING SECRET BELONGS IN THIS FILE. This repository is public. The
+# database URI and the admin token are read from Secrets created out of
+# band; only their names appear here.
+#
+#   make db-user APP=vaultwarden NAMESPACE=vaultwarden DB=vaultwarden
+#   kubectl -n vaultwarden create secret generic vaultwarden-admin \
+#     --from-literal=ADMIN_TOKEN="$(openssl rand -base64 48)"
+# ─────────────────────────────────────────────────────────────────────────
+
+# Must match the URL the browser and CLI actually use, including the port.
+# Bitwarden clients refuse to work over plain HTTP, so this is https on 8543.
+domain: "https://vault.localtest.me:8543"
+
+database:
+  type: postgresql
+  # From `make db-user APP=vaultwarden` — the Secret carries a ready-made
+  # DATABASE_URL in postgresql://user:pass@host:port/db form.
+  existingSecret: vaultwarden-db
+  existingSecretKey: DATABASE_URL
+
+adminToken:
+  existingSecret: vaultwarden-admin
+  existingSecretKey: ADMIN_TOKEN
+
+# Open signups let anyone who can reach the ingress create an account.
+# Left on ONLY so the first account can be created; turn it off immediately
+# afterwards and re-sync. Tracked in the runbook, not left to memory.
+signupsAllowed: true
+invitationsAllowed: true
+
+ingress:
+  enabled: true
+  class: "nginx"
+  hostname: "vault.localtest.me"
+  tls: true
+  path: "/"
+  pathType: "Prefix"
+
+# The lab publishes 8090/8543, and ingress-nginx serves its own placeholder
+# certificate. Browsers and the bw CLI will warn about it — see the runbook
+# for NODE_EXTRA_CA_CERTS.
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+# Storage lives in PostgreSQL, so the pod itself needs no PVC.
+data:
+  enabled: false
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL

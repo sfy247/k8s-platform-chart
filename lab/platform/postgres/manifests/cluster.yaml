@@ -71,3 +71,11 @@ spec:
         createrole: false
         passwordSecret:
           name: pg-trading-credentials
+      - name: vaultwarden_app
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        passwordSecret:
+          name: pg-vaultwarden-credentials
