@@ -1,6 +1,6 @@
 {
   "environment": "paper",
-  "tradingEnabled": false,
+  "tradingEnabled": true,
   "strategy": {
     "name": "momentum-v1",
     "minimumConfidence": 0.70,

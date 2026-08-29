@@ -167,11 +167,17 @@ public sealed class TradingWorker(
         var accountState = new AccountRiskState(
             Cash: account.Cash,
             PortfolioExposure: account.PortfolioExposure,
-            DailyRealizedPnl: 0m,
+            // Real day P&L from the broker. This was previously hardcoded to
+            // zero, which silently disabled the daily loss limit — the risk
+            // engine's check is `DailyRealizedPnl <= -MaxDailyRealizedLoss`,
+            // and zero never satisfies it.
+            DailyRealizedPnl: account.DayPnl,
             OpenPositionCount: account.OpenPositionCount,
             TotalOrdersToday: ordersToday.Count,
             OrdersForSymbolToday: ordersToday.Count(o => string.Equals(o.Symbol, symbol, StringComparison.OrdinalIgnoreCase)),
             MarketOpen: clock.IsOpen,
+            // Startup refuses any endpoint other than the paper host over
+            // HTTPS, so by the time a cycle runs this is established fact.
             IsPaperEndpoint: true,
             HasOpenOrderForSymbol: openOrderSymbols.Contains(symbol),
             ExistingPositionNotional: account.PositionNotionalBySymbol.GetValueOrDefault(symbol, 0m));

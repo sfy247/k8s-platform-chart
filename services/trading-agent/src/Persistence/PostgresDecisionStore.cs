@@ -5,11 +5,17 @@ using Npgsql;
 namespace ClaudeTradingAgent.Persistence;
 
 /// <summary>
-/// Append-only audit of every evaluation.
+/// Audit of every evaluation: one row per decision.
 ///
-/// Deliberately not an ORM: this writes one immutable row per decision and
-/// never updates or deletes. Change tracking, lazy loading and entity graphs
-/// would all be cost without benefit.
+/// Rows without an order id are written once and never touched again. Rows
+/// WITH one are written twice — an intent record before the order is sent to
+/// the broker, then the outcome merged in when the broker answers. That
+/// ordering is the point: if the process dies mid-submission there is still
+/// a record that an order was attempted, which is the case an audit exists
+/// for. COALESCE means the outcome never erases what the intent recorded.
+///
+/// Deliberately not an ORM: this is two statements against one table.
+/// Change tracking and entity graphs would be cost without benefit.
 /// </summary>
 public sealed class PostgresDecisionStore(
     NpgsqlDataSource dataSource,
@@ -77,7 +83,13 @@ public sealed class PostgresDecisionStore(
             @Approved, @DecisionCode, @DecisionReason, @ClientOrderId,
             @BrokerOrderId, @BrokerStatus, @FilledQuantity, @FilledAveragePrice,
             @TradingEnabled, @MarketOpen, @Pod)
-        ON CONFLICT (client_order_id) DO NOTHING;
+        ON CONFLICT (client_order_id) DO UPDATE SET
+            decision_code    = EXCLUDED.decision_code,
+            decision_reason  = EXCLUDED.decision_reason,
+            broker_order_id  = COALESCE(EXCLUDED.broker_order_id,  trading_decision.broker_order_id),
+            broker_status    = COALESCE(EXCLUDED.broker_status,    trading_decision.broker_status),
+            filled_quantity  = COALESCE(EXCLUDED.filled_quantity,  trading_decision.filled_quantity),
+            filled_avg_price = COALESCE(EXCLUDED.filled_avg_price, trading_decision.filled_avg_price);
         """;
 
     public async Task InitialiseAsync(CancellationToken cancellationToken = default)
