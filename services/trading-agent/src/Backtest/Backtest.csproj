@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>ClaudeTradingAgent.Backtest</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The real strategy and the real risk engine. A backtest that
+         reimplements them measures the reimplementation, not the system. -->
+    <ProjectReference Include="../Strategy/Strategy.csproj" />
+    <ProjectReference Include="../RiskManagement/RiskManagement.csproj" />
+    <ProjectReference Include="../MarketData/MarketData.csproj" />
+  </ItemGroup>
+
+</Project>
