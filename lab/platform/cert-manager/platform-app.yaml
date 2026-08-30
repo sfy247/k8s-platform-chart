@@ -1,0 +1,8 @@
+# Platform component — read by the lab-platform ApplicationSet.
+# Keep it flat: Argo CD's git generator parses it directly.
+name: cert-manager
+namespace: cert-manager
+chartRepo: https://charts.jetstack.io
+chart: cert-manager
+version: "v1.21.1"
+values: lab/platform/cert-manager/values/cert-manager.yaml

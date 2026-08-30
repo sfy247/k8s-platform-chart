@@ -1,0 +1,45 @@
+# cert-manager issues every certificate in the lab from a private CA, so
+# browsers show a padlock instead of a warning — see lab/platform/certs/.
+#
+# The issuers and the wildcard certificate are NOT here: they are custom
+# resources, and they need these CRDs to exist first. They live in
+# lab/platform/certs, delivered by the certs-config Application.
+
+crds:
+  # Install the CRDs with the chart. Argo CD then owns them like anything
+  # else, so a fresh cluster converges without a manual apply step.
+  enabled: true
+  # Keep CRDs if the release is removed. Deleting them would delete every
+  # Certificate and Issuer in the cluster along with them.
+  keep: true
+
+# Lab-sized. Requests are what the scheduler reserves; keep them honest.
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 128Mi
+
+webhook:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+
+cainjector:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+
+prometheus:
+  enabled: true
+  servicemonitor:
+    # The prometheus-operator-crds Application installs the ServiceMonitor
+    # CRD before the rest of the platform, so this is safe to declare.
+    enabled: true

@@ -58,6 +58,7 @@ log "Applying the platform ApplicationSet"
 kubectl apply -f "${BOOTSTRAP_DIR}/platform-applicationset.yaml" >/dev/null
 kubectl apply -f "${BOOTSTRAP_DIR}/observability-config.yaml" >/dev/null
 kubectl apply -f "${BOOTSTRAP_DIR}/postgres-config.yaml" >/dev/null
+kubectl apply -f "${BOOTSTRAP_DIR}/certs-config.yaml" >/dev/null
 ok "platform declared — Argo CD is installing it"
 
 # ── And the apps ─────────────────────────────────────────────

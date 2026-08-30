@@ -1,0 +1,46 @@
+# The lab's certificate authority and its wildcard certificate.
+#
+# Separate from cert-manager's own Application for the same reason
+# postgres-config is separate from the CloudNativePG operator: the operator
+# installs the CRDs, and these resources use them. Splitting them means the
+# Application retries cleanly instead of failing on a type that does not
+# exist yet.
+#
+# Namespaced across two namespaces (cert-manager for the root CA,
+# ingress-nginx for the wildcard), so the manifests carry their own
+# namespace and the Application does not impose one.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: certs-config
+  namespace: argocd
+  labels:
+    lab.sfy247.io/layer: platform
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/sfy247/k8s-platform-chart.git
+    targetRevision: main
+    path: lab/platform/certs
+  destination:
+    server: https://kubernetes.default.svc
+    # Namespace-scoped resources declare their own namespace; this is only
+    # the default for anything that does not.
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      # The CRDs arrive with the cert-manager Application. Without this the
+      # first sync fails its dry run instead of retrying.
+      - SkipDryRunOnMissingResource=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m

@@ -26,6 +26,17 @@ controller:
     # Readable access logs while learning; drop to text/JSON as you like.
     log-format-escape-json: "true"
 
+  # Serve the lab's wildcard certificate for every host that does not
+  # request its own. This is what makes a new app secure with no
+  # configuration: any *.localtest.me Ingress gets a trusted certificate
+  # whether or not it declares a `tls:` block.
+  #
+  # Issued by cert-manager from the lab root CA — see lab/platform/certs.
+  # Until that certificate exists, ingress-nginx falls back to its own
+  # self-signed default, so this is safe to set before it is issued.
+  extraArgs:
+    default-ssl-certificate: ingress-nginx/lab-wildcard-tls
+
   admissionWebhooks:
     enabled: true          # rejects malformed Ingress objects at apply time
 
@@ -37,7 +48,5 @@ controller:
       # rest of the platform.
       enabled: true
 
-# The lab has no cert-manager, so nothing issues real certs. TLS on an app
-# Ingress will fall back to ingress-nginx's self-signed default certificate.
 defaultBackend:
   enabled: false

@@ -54,6 +54,26 @@ app-secret: ## Create a Secret from prompted values: make app-secret APP=x KEYS=
 db-user: ## Create a DB role + credentials for an app: make db-user APP=trading [NAMESPACE=demo] [DB=trading]
 	@$(SCRIPTS)/db-user.sh
 
+ca-export: ## Write the lab root CA to lab-root-ca.crt for browser/OS trust
+	@kubectl -n cert-manager get secret lab-root-ca -o jsonpath='{.data.tls\.crt}' \
+	  | base64 -d > lab-root-ca.crt
+	@echo "  wrote lab-root-ca.crt"
+	@echo
+	@echo "  Trust it system-wide (asks for your password):"
+	@echo "    sudo cp lab-root-ca.crt /usr/local/share/ca-certificates/sfy247-lab.crt"
+	@echo "    sudo update-ca-certificates"
+	@echo
+	@echo "  Firefox keeps its own store:"
+	@echo "    Settings -> Privacy & Security -> Certificates -> View Certificates"
+	@echo "    -> Authorities -> Import -> lab-root-ca.crt -> trust for websites"
+	@echo
+	@echo "  Restart the browser afterwards."
+
+ca-check: ## Show which certificate a lab host is serving
+	@echo | openssl s_client -connect $(or $(HOST),grafana.localtest.me):8543 \
+	  -servername $(or $(HOST),grafana.localtest.me) 2>/dev/null \
+	  | openssl x509 -noout -subject -issuer -dates
+
 db-shell: ## Open psql on the shared cluster: make db-shell [DB=lab]
 	kubectl -n data exec -it lab-pg-1 -- psql -U postgres -d $(or $(DB),lab)
 
