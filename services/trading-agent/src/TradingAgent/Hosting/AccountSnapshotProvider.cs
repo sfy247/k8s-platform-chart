@@ -32,7 +32,7 @@ public sealed class AccountSnapshotProvider
         decimal Equity,
         decimal PortfolioExposure,
         decimal DayPnl,
-        int DayTradeCount,
+        int? DayTradeCount,
         IReadOnlyList<PositionSnapshot> Positions,
         IReadOnlyDictionary<string, decimal> PositionNotionalBySymbol)
     {
@@ -57,7 +57,13 @@ public sealed class AccountSnapshotProvider
         // Day trades used in the rolling five-business-day window, as the
         // broker counts them. The agent never derives this itself — the
         // broker's count is the one that triggers the restriction.
-        var dayTradeCount = ParseInt(account, "daytrade_count");
+        //
+        // Optional, because Alpaca does not send it for every account type.
+        // Requiring it threw on every cycle, which would have stopped the
+        // end-of-day flatten as well as entries. The risk engine only
+        // consults it below the PDT equity threshold, and fails closed there
+        // when it is absent.
+        var dayTradeCount = ParseOptionalInt(account, "daytrade_count");
 
         var positions = await GetJsonAsync($"{_tradingBaseUrl}/v2/positions", cancellationToken);
         var list = new List<PositionSnapshot>();
@@ -73,14 +79,15 @@ public sealed class AccountSnapshotProvider
 
                 var marketValue = Math.Abs(ParseDecimal(position, "market_value"));
 
-                // Quantity and market value are strict: without them there is
-                // no position to reason about. The P&L fields are optional so
-                // that a broker response missing one suspends the stop rather
-                // than failing the cycle — a failed cycle also skips the
-                // end-of-day flatten, which is the worse outcome by far.
+                // Only symbol and market value are required: together they are
+                // what proves there is something to close, and both are
+                // long-proven against this broker. Everything else is
+                // optional, because a cycle that throws on a missing field
+                // also skips the end-of-day flatten — the worse outcome by
+                // far.
                 list.Add(new PositionSnapshot(
                     symbol.ToUpperInvariant(),
-                    ParseDecimal(position, "qty"),
+                    ParseOptionalDecimal(position, "qty"),
                     marketValue,
                     ParseOptionalDecimal(position, "avg_entry_price"),
                     ParseOptionalDecimal(position, "current_price"),
@@ -164,16 +171,16 @@ public sealed class AccountSnapshotProvider
         };
     }
 
-    private static int ParseInt(JsonElement element, string property)
+    /// <summary>Null when the broker did not send a usable integer. Never zero as a stand-in.</summary>
+    private static int? ParseOptionalInt(JsonElement element, string property)
     {
-        if (!element.TryGetProperty(property, out var value))
-            throw new InvalidOperationException($"Broker field '{property}' is missing.");
+        if (!element.TryGetProperty(property, out var value)) return null;
 
         return value.ValueKind switch
         {
             JsonValueKind.Number when value.TryGetInt32(out var i) => i,
             JsonValueKind.String when int.TryParse(value.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var i) => i,
-            _ => throw new InvalidOperationException($"Broker field '{property}' is not an integer."),
+            _ => null,
         };
     }
 }

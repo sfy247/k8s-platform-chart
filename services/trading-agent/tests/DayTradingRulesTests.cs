@@ -173,10 +173,22 @@ public sealed class DayTradingRulesTests
     }
 
     [Fact]
-    public void Ignores_a_position_with_no_quantity()
+    public void Ignores_a_position_with_no_market_value()
     {
-        var empty = Position(pnlFraction: -0.05m) with { Quantity = 0m };
+        var empty = Position(pnlFraction: -0.05m) with { MarketValue = 0m };
         Assert.False(ExitManager.Evaluate(empty, Exits, Windows, Session, MidSession).ShouldExit);
+    }
+
+    [Fact]
+    public void Still_flattens_when_the_broker_omits_the_quantity()
+    {
+        // Presence in the positions list with a market value is what proves
+        // there is something to close. Requiring qty would mean a missing
+        // field silently exempts a position from the flatten.
+        var noQty = Position(pnlFraction: 0m) with { Quantity = null };
+        var decision = ExitManager.Evaluate(noQty, Exits, Windows, Session, Session.CloseUtc.AddMinutes(-10));
+        Assert.True(decision.ShouldExit);
+        Assert.Equal(ExitReason.SessionClose, decision.Reason);
     }
 
     private static DateTimeOffset MidSession => Session.OpenUtc.AddHours(2);

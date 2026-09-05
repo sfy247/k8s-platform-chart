@@ -60,7 +60,10 @@ public static class ExitManager
         TradingSession session,
         DateTimeOffset now)
     {
-        if (position.Quantity <= 0) return ExitDecision.Hold;
+        // Market value, not quantity: a position appearing in the broker's
+        // positions list with a value is the signal that there is something
+        // to close. Quantity is informational and may be absent.
+        if (position.MarketValue <= 0) return ExitDecision.Hold;
 
         // Unconditional, and checked first so that no later rule — or bug in
         // one — can prevent the position being flat for the night.

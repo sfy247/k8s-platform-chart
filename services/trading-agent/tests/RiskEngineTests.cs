@@ -81,6 +81,34 @@ public sealed class RiskEngineTests
     }
 
     [Fact]
+    public void Allows_entry_above_the_pdt_threshold_without_a_day_trade_count()
+    {
+        // Alpaca does not return daytrade_count for every account type.
+        // Above the equity threshold the rule does not apply, so requiring
+        // the field would fail every cycle — and take the flatten with it.
+        var state = State(equity: 100_000m, dayTrades: null);
+        Assert.True(new RiskEngine().Evaluate(Signal(), state, Policy(), Symbols, Now).Approved);
+    }
+
+    [Fact]
+    public void Refuses_entry_below_the_pdt_threshold_without_a_day_trade_count()
+    {
+        // Here the limit does apply and cannot be evaluated, so fail closed.
+        var result = new RiskEngine().Evaluate(
+            Signal(), State(equity: 20_000m, dayTrades: null), Policy(), Symbols, Now);
+        Assert.False(result.Approved);
+        Assert.Equal("PDT_COUNT_UNKNOWN", result.Code);
+    }
+
+    [Fact]
+    public void Still_allows_an_exit_without_a_day_trade_count()
+    {
+        var state = State(equity: 20_000m, dayTrades: null, position: 10m);
+        Assert.True(new RiskEngine()
+            .Evaluate(SellAll(), state, Policy(), Symbols, Now, OrderIntent.Exit).Approved);
+    }
+
+    [Fact]
     public void Rejects_entry_when_equity_is_unknown()
     {
         var result = new RiskEngine().Evaluate(Signal(), State(equity: 0m), Policy(), Symbols, Now);
@@ -174,7 +202,7 @@ public sealed class RiskEngineTests
         decimal dailyPnl = 0m,
         bool hasOpenOrder = false,
         decimal equity = 100_000m,
-        int dayTrades = 0,
+        int? dayTrades = 0,
         decimal position = 0m,
         int totalOrders = 0,
         int symbolOrders = 0,
