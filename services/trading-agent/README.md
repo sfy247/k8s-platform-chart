@@ -1,6 +1,8 @@
-# Claude Trading Agent — Paper Trading Reference Implementation
+# Claude Trading Agent — Paper Day-Trading Reference Implementation
 
-A safety-first, paper-trading system for evaluating an AI-assisted stock-trading workflow before any real capital is exposed.
+A safety-first, paper **day-trading** system for evaluating an AI-assisted stock-trading workflow before any real capital is exposed.
+
+Day trading here is a hard property, not a description of intent: every position is opened and closed inside the same regular session, and the agent closes whatever it is holding before the bell whether the trade is winning or losing. Positions are never carried overnight.
 
 ## Core design principles
 
@@ -14,45 +16,120 @@ A safety-first, paper-trading system for evaluating an AI-assisted stock-trading
 8. **Small-account realism.** The default risk profile models a $100 paper account and uses fractional-notional orders.
 9. **No leverage or shorting.** Margin, shorting, options, crypto, and extended-hours trading are disabled.
 10. **Manual promotion only.** Moving from paper to live trading must require deliberate code/configuration changes and new credentials.
+11. **Flat overnight.** The end-of-day flatten is unconditional and is checked before any entry is considered.
+12. **Exits outrank the strategy.** Stops, targets and the flatten deadline are deterministic risk code. A strategy may be wrong about direction; it does not get to decide whether a stop applies.
 
 ## Architecture
 
+Each cycle runs two passes, in this order. The order is the design.
+
 ```text
-Market Data
-    │
-    ▼
-Research / Strategy
-    │  TradeProposal
-    ▼
-Deterministic Risk Engine
-    │  ApprovedOrder
-    ▼
-Execution Service
-    │
-    ▼
-Alpaca PAPER API
-    │
-    ├── Orders / fills
-    └── Account state
+                        Exchange clock + calendar
+                                   │
+        ┌──────────────────────────┴──────────────────────────┐
+        │                                                     │
+   1. EXIT PASS                                        2. ENTRY PASS
+   (always runs)                              (only inside the entry window)
+        │                                                     │
+  Open positions                                        Market data
+   from broker                                               │
+        │                                                     ▼
+        ▼                                          Research / Strategy
+  Deterministic exits                                         │  TradeProposal
+  stop / target / flatten                                     │
+        │  SELL                                               │
+        └──────────────────────┬──────────────────────────────┘
+                               ▼
+                   Deterministic Risk Engine
+                   (entry rules skipped for exits)
+                               │  ApprovedOrder
+                               ▼
+                       Execution Service
+                               │
+                               ▼
+                       Alpaca PAPER API
+                               │
+                               ├── Orders / fills
+                               └── Account state
 
 Portfolio + Audit consume the same event stream.
 ```
+
+The exit pass runs even when entries are blocked. An agent that is barred from
+entering must still be able to leave — otherwise a rule meant to reduce risk
+strands a position overnight.
 
 ## Default paper risk policy
 
 - Starting capital assumption: **$100**
 - Maximum new position notional: **$10**
 - Maximum concurrent positions: **3**
-- Maximum daily realized loss: **$3**
+- Maximum daily loss: **$3**
 - Minimum cash reserve: **$10**
+- Orders per day: **30**, per symbol: **6**
 - Margin: **disabled**
 - Shorting: **disabled**
 - Options: **disabled**
 - Crypto: **disabled**
 - Extended hours: **disabled**
+- Overnight positions: **disabled**
 - Fractional-notional market orders: **allowed only during regular market hours and after spread/data-freshness checks**
 
+## Day-trading policy
+
+| Setting | Default | What it does |
+|---|---|---|
+| `session.skipFirstMinutesAfterOpen` | 5 | No entries during the opening auction's unstable spreads |
+| `session.noNewEntriesMinutesBeforeClose` | 30 | Stops opening positions that would be force-closed minutes later |
+| `session.flattenMinutesBeforeClose` | 15 | **Every position closed**, winning or losing |
+| `exits.stopLossPercent` | 0.75 | Per-position invalidation |
+| `exits.takeProfitPercent` | 1.50 | Per-position target |
+| `exits.maxHoldMinutes` | 90 | Closes a position that has gone nowhere |
+| `risk.pdtEquityThreshold` | 25000 | FINRA pattern-day-trader equity line |
+| `risk.maxDayTradesUnderPdtThreshold` | 3 | Day trades allowed below that line |
+
+Session bounds come from the exchange calendar, so an early close (the day
+after Thanksgiving, Christmas Eve) moves every boundary with it rather than
+leaving the agent flattening after the market has gone home.
+
+Position P&L is read from the broker each cycle, not from a remembered entry
+price, so a restarted pod still knows where its stops are.
+
 These are testing controls, not a promise of profitability.
+
+## Market data feed
+
+`ALPACA_DATA_FEED` chooses the feed: `iex` (free, default) or `sip` (paid,
+consolidated tape). It is an environment variable rather than part of
+`config/trading.json`, so switching it is a values change and an Argo sync
+rather than an image rebuild.
+
+This is the single setting most likely to decide whether the agent trades at
+all. IEX is roughly 2-3% of US equity volume; when it has no size at the
+inside, an IEX-only quote reads far wider than the real market and the spread
+filter refuses it. That is the control working correctly on bad input — but
+the result is trades that quietly never happen.
+
+Measured over one session on the five allowlisted symbols, `iex` discarded
+20% of all evaluations on spread alone:
+
+```
+AAPL   0%     MSFT  49%     GOOGL 36%     AMZN 18%     NVDA 0%
+```
+
+Those five do not have meaningfully different real spreads. The pattern
+tracks IEX liquidity. Move to `sip` before concluding anything about whether
+a strategy has an edge.
+
+Do **not** raise `strategy.maximumSpreadBps` to compensate. That makes the
+agent trade on a quote it has already established is unreliable, and take its
+mid price from the same quote.
+
+## Kill-switch caveat
+
+Setting `TRADING_ENABLED=false` stops the agent reaching the broker at all —
+including for the end-of-day flatten. If you disable trading while a position
+is open, that position stays open. Close it at the broker yourself.
 
 ## Repository layout
 
@@ -70,7 +147,7 @@ These are testing controls, not a promise of profitability.
 │   ├── TradingAgent/
 │   ├── MarketData/
 │   ├── Strategy/
-│   ├── RiskManagement/
+│   ├── RiskManagement/       # risk engine + session windows and exits
 │   ├── Execution/
 │   └── Portfolio/
 ├── tests/
@@ -113,6 +190,11 @@ ALPACA_TRADING_BASE_URL=https://paper-api.alpaca.markets
 ## Important paper-trading limitations
 
 Paper trading is useful for software and strategy testing, but simulated fills can differ from live fills because liquidity, fill assumptions, and market impact are not identical to real trading. Treat positive paper results as evidence to investigate further, not proof that a live strategy will perform the same way.
+
+Two limitations matter specifically for day trading:
+
+- **The close is the worst time to be forced to trade.** The flatten deadline puts market orders into the last fifteen minutes, when real spreads widen and real impact is highest. Paper fills will flatter this; live fills would not.
+- **The backtest does not model the day-trading rules.** `src/Backtest` replays the production strategy and risk engine, but not the session windows, the stops, the flatten, or the pattern-day-trader limit. Its numbers describe the entry signal, not this system's behaviour.
 
 ## Backtesting
 

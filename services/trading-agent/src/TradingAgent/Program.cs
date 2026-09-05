@@ -34,6 +34,7 @@ var options = new AgentOptions
     TradingEnabled = builder.Configuration.GetValue("TRADING_ENABLED", false),
     AlpacaTradingBaseUrl = builder.Configuration["ALPACA_TRADING_BASE_URL"] ?? "https://paper-api.alpaca.markets",
     AlpacaDataBaseUrl = builder.Configuration["ALPACA_DATA_BASE_URL"] ?? "https://data.alpaca.markets",
+    AlpacaDataFeed = builder.Configuration["ALPACA_DATA_FEED"] ?? AgentOptions.DefaultFeed,
     AlpacaApiKeyId = builder.Configuration["ALPACA_API_KEY_ID"] ?? string.Empty,
     AlpacaApiSecretKey = builder.Configuration["ALPACA_API_SECRET_KEY"] ?? string.Empty,
     TradingConfigPath = builder.Configuration["TRADING_CONFIG_PATH"] ?? "config/trading.json",
@@ -80,7 +81,7 @@ var timeout = TimeSpan.FromSeconds(options.BrokerTimeoutSeconds);
 builder.Services.AddHttpClient<IMarketDataProvider, AlpacaMarketDataProvider>(c => c.Timeout = timeout)
     .AddTypedClient((http, _) => (IMarketDataProvider)new AlpacaMarketDataProvider(
         http, options.AlpacaApiKeyId, options.AlpacaApiSecretKey,
-        options.AlpacaDataBaseUrl, options.AlpacaTradingBaseUrl));
+        options.AlpacaDataBaseUrl, options.AlpacaTradingBaseUrl, options.NormalisedDataFeed));
 
 builder.Services.AddHttpClient<AccountSnapshotProvider>(c => c.Timeout = timeout)
     .AddTypedClient((http, _) => new AccountSnapshotProvider(
@@ -127,11 +128,27 @@ app.MapGet("/readyz", (AgentState state) =>
 app.MapGet("/", (AgentState state, AgentOptions o, TradingPolicySet p) => Results.Ok(new
 {
     service = "trading-agent",
+    style = "day-trading",
     mode = o.TradingMode,
     tradingEnabled = p.Risk.TradingEnabled,
     auditEnabled = o.HasDatabase,
     strategy = p.StrategyName,
+    dataFeed = o.NormalisedDataFeed,
     symbols = p.Allowlist.OrderBy(s => s, StringComparer.Ordinal),
+    // The rules that make this a day-trading agent, visible without reading
+    // the config that is baked into the image.
+    session = new
+    {
+        noEntryFirstMinutes = p.Session.NoEntryAfterOpen.TotalMinutes,
+        noEntryLastMinutes = p.Session.NoEntryBeforeClose.TotalMinutes,
+        flattenMinutesBeforeClose = p.Session.FlattenBeforeClose.TotalMinutes,
+    },
+    exits = new
+    {
+        stopLossPercent = p.Exits.StopLossPercent,
+        takeProfitPercent = p.Exits.TakeProfitPercent,
+        maxHoldMinutes = p.Exits.MaxHoldTime.TotalMinutes,
+    },
     state = state.Snapshot(),
 }));
 

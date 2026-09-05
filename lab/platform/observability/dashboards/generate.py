@@ -640,43 +640,68 @@ def trading_agent() -> dict:
         tgt(f'sum by (symbol) (rate(trading_agent_evaluations_total{{{TA}}}[5m]))', "{{symbol}}"),
     ], "short", 12, 14, w=12))
 
+    # ── Data feed ─────────────────────────────────────────────────────────
+    # A thin feed does not produce wrong trades, it produces missing ones,
+    # which is far harder to notice. These panels exist so that "the strategy
+    # never fires" can be told apart from "the agent never saw a tradable
+    # quote".
+    p.append(row("Market data quality", 22))
+    p.append(table("Quote rejections by symbol and reason", [
+        tgt(f'sum by (symbol, reason) (increase(trading_agent_market_data_rejections_total{{{TA}}}[$__range]))',
+            "", instant=True),
+    ], 0, 23, w=12, h=8,
+        desc="wide_spread concentrated on a few liquid symbols means the data feed is thin, not the market. "
+             "IEX is one venue; when it has no size at the inside its quote reads far wider than the real "
+             "market and the spread filter correctly refuses it. Switch ALPACA_DATA_FEED to sip to compare.",
+        transforms=[{"id": "organize", "options": {"excludeByName": {
+            "Time": True, "__name__": True, "container": True, "endpoint": True,
+            "instance": True, "job": True, "namespace": True, "pod": True, "service": True}}}]))
+    p.append(ts("Share of evaluations lost to unusable quotes", [
+        tgt(f'sum(rate(trading_agent_market_data_rejections_total{{{TA}}}[15m])) '
+            f'/ clamp_min(sum(rate(trading_agent_evaluations_total{{{TA}}}[15m])), 0.0001)', "rejected"),
+    ], "percentunit", 12, 23, w=12, h=8,
+        desc="Evaluations that never reached the strategy because the quote was not tradable. "
+             "Sustained above a few percent on liquid names is a data-plan problem, not a market one. "
+             "The wrong fix is raising maximumSpreadBps: that makes the agent trade on a quote it has "
+             "already established is unreliable."))
+
     # ── Orders ────────────────────────────────────────────────────────────
-    p.append(row("Orders", 22))
+    p.append(row("Orders", 31))
     p.append(stat("Approved (24h)",
                   f'sum(increase(trading_agent_evaluations_total{{{TA}, outcome="approved"}}[24h])) or vector(0)',
-                  "short", 0, 23, w=6, decimals=0,
+                  "short", 0, 32, w=6, decimals=0,
                   thresholds=steps(("text", None)),
                   desc="Orders the risk engine approved and sent to the broker. Bounded by the daily order limit in trading.json."))
     p.append(ts("Approvals over time", [
         tgt(f'sum(increase(trading_agent_evaluations_total{{{TA}, outcome="approved"}}[1h]))', "approved/hour"),
-    ], "short", 6, 23, w=18, h=6,
+    ], "short", 6, 32, w=18, h=6,
         desc="Flat at zero is the expected picture for a conservative momentum strategy on five symbols."))
 
     # ── Health ────────────────────────────────────────────────────────────
-    p.append(row("Health", 29))
+    p.append(row("Health", 38))
     p.append(ts("Cycle duration", [
         tgt(f'histogram_quantile(0.95, sum by (le) (rate(trading_agent_cycle_duration_seconds_bucket{{{TA}}}[5m])))', "p95"),
         tgt(f'histogram_quantile(0.50, sum by (le) (rate(trading_agent_cycle_duration_seconds_bucket{{{TA}}}[5m])))', "p50", "B"),
-    ], "s", 0, 30, w=8,
-        desc="One cycle fetches the clock, account, orders, then quotes and bars per symbol. Approaching the 60s interval means cycles would start overlapping."))
+    ], "s", 0, 39, w=8,
+        desc="One cycle fetches the clock, calendar, account, orders, positions, then quotes and bars per symbol. Approaching the 30s interval means cycles would start overlapping."))
     p.append(ts("Cycles per second", [
         tgt(f'sum by (result) (rate(trading_agent_cycles_total{{{TA}}}[5m]))', "{{result}}"),
-    ], "short", 8, 30, w=8))
+    ], "short", 8, 39, w=8))
     p.append(ts("Memory and CPU", [
         tgt('sum(container_memory_working_set_bytes{namespace="demo", pod=~"trading-agent-.*", container!=""})', "memory"),
-    ], "bytes", 16, 30, w=8))
+    ], "bytes", 16, 39, w=8))
 
     # ── Logs ──────────────────────────────────────────────────────────────
-    p.append(row("Decision log", 38))
+    p.append(row("Decision log", 47))
     p.append(logs_panel(
         "Orders and warnings",
         f'{TA_LOGS} | json | severity =~ "WARNING|ERROR|CRITICAL"',
-        0, 39, h=8,
+        0, 48, h=8,
         desc="Order submissions are logged at WARNING precisely so they surface here rather than being lost among routine holds."))
     p.append(logs_panel(
         "Every decision",
         f'{TA_LOGS} | json | logger =~ ".*TradingWorker.*" | line_format "{{{{.message}}}}"',
-        0, 47, h=14,
+        0, 56, h=14,
         desc="One line per symbol per cycle: the outcome, the reason, and the strategy's confidence."))
 
     return dashboard(

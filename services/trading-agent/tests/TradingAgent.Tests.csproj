@@ -7,6 +7,11 @@
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
   </ItemGroup>
+  <!-- The shipped policy files, laid out exactly as they are in the image, so
+       a test can load the real configuration rather than a copy of it. -->
+  <ItemGroup>
+    <None Include="../config/*.json" Link="config/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../src/Strategy/Strategy.csproj" />
     <ProjectReference Include="../src/RiskManagement/RiskManagement.csproj" />

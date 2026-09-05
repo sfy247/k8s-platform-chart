@@ -736,12 +736,153 @@
     },
     {
       "type": "row",
-      "title": "Orders",
+      "title": "Market data quality",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 22
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Quote rejections by symbol and reason",
+      "description": "wide_spread concentrated on a few liquid symbols means the data feed is thin, not the market. IEX is one venue; when it has no size at the inside its quote reads far wider than the real market and the spread filter correctly refuses it. Switch ALPACA_DATA_FEED to sip to compare.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds_prom}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds_prom}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (symbol, reason) (increase(trading_agent_market_data_rejections_total{job=\"trading-agent\", namespace=\"demo\"}[$__range]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "container": true,
+              "endpoint": true,
+              "instance": true,
+              "job": true,
+              "namespace": true,
+              "pod": true,
+              "service": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Share of evaluations lost to unusable quotes",
+      "description": "Evaluations that never reached the strategy because the quote was not tradable. Sustained above a few percent on liquid names is a data-plan problem, not a market one. The wrong fix is raising maximumSpreadBps: that makes the agent trade on a quote it has already established is unreliable.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 23
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds_prom}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds_prom}"
+          },
+          "editorMode": "code",
+          "expr": "sum(rate(trading_agent_market_data_rejections_total{job=\"trading-agent\", namespace=\"demo\"}[15m])) / clamp_min(sum(rate(trading_agent_evaluations_total{job=\"trading-agent\", namespace=\"demo\"}[15m])), 0.0001)",
+          "legendFormat": "rejected",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": null,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Orders",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
       },
       "collapsed": false,
       "panels": []
@@ -754,7 +895,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 23
+        "y": 32
       },
       "datasource": {
         "type": "prometheus",
@@ -811,7 +952,7 @@
         "h": 6,
         "w": 18,
         "x": 6,
-        "y": 23
+        "y": 32
       },
       "datasource": {
         "type": "prometheus",
@@ -877,7 +1018,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 29
+        "y": 38
       },
       "collapsed": false,
       "panels": []
@@ -885,12 +1026,12 @@
     {
       "type": "timeseries",
       "title": "Cycle duration",
-      "description": "One cycle fetches the clock, account, orders, then quotes and bars per symbol. Approaching the 60s interval means cycles would start overlapping.",
+      "description": "One cycle fetches the clock, calendar, account, orders, positions, then quotes and bars per symbol. Approaching the 30s interval means cycles would start overlapping.",
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 30
+        "y": 39
       },
       "datasource": {
         "type": "prometheus",
@@ -969,7 +1110,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 30
+        "y": 39
       },
       "datasource": {
         "type": "prometheus",
@@ -1036,7 +1177,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 30
+        "y": 39
       },
       "datasource": {
         "type": "prometheus",
@@ -1102,7 +1243,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 38
+        "y": 47
       },
       "collapsed": false,
       "panels": []
@@ -1115,7 +1256,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 39
+        "y": 48
       },
       "datasource": {
         "type": "loki",
@@ -1151,7 +1292,7 @@
         "h": 14,
         "w": 24,
         "x": 0,
-        "y": 47
+        "y": 56
       },
       "datasource": {
         "type": "loki",

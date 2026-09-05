@@ -62,7 +62,12 @@ var riskPolicy = unconstrained
         MaxTotalOrdersPerDay: 100,
         MaxDataAge: maxDataAge,
         RequirePaperMode: true,
-        TradingEnabled: true)
+        TradingEnabled: true,
+        // The pattern-day-trader limit is a broker-enforced fact about a real
+        // account, not a property of the signal. Zero disables the check so
+        // the backtest measures the strategy rather than the account type.
+        PdtEquityThreshold: 0m,
+        MaxDayTradesUnderPdt: 0)
     : new RiskPolicy(
     riskCfg.GetProperty("maxPositionNotional").GetDecimal(),
     riskCfg.GetProperty("maxConcurrentPositions").GetInt32(),
@@ -75,7 +80,9 @@ var riskPolicy = unconstrained
     RequirePaperMode: true,
     // The kill switch is a production control. A backtest that honoured it
     // would reject every proposal and report a flat line.
-    TradingEnabled: true);
+    TradingEnabled: true,
+    PdtEquityThreshold: 0m,
+    MaxDayTradesUnderPdt: 0);
 
 if (unconstrained)
     Console.WriteLine("  MEASURING THE SIGNAL: risk caps relaxed. Not a deployable configuration.\n");

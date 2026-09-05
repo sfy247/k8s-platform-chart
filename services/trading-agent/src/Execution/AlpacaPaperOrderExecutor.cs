@@ -45,6 +45,34 @@ public sealed class AlpacaPaperOrderExecutor(HttpClient httpClient, string apiKe
             ParseTimestamp(root, "submitted_at"));
     }
 
+    public async Task<BrokerOrderResult> LiquidatePositionAsync(ApprovedOrder order, CancellationToken cancellationToken = default)
+    {
+        if (order.Intent != OrderIntent.Exit)
+            throw new InvalidOperationException("Only orders approved with exit intent may liquidate a position.");
+
+        // The broker closes whatever quantity it actually holds. Asking it to
+        // sell a notional amount we computed a moment ago would leave a
+        // fraction of a share behind whenever the price moved in between, and
+        // a residual position is still an overnight position.
+        using var response = await _http.DeleteAsync(
+            $"/v2/positions/{Uri.EscapeDataString(order.Symbol)}", cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"Position close rejected with HTTP {(int)response.StatusCode}: {body}");
+
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+        return new BrokerOrderResult(
+            root.GetProperty("id").GetString() ?? throw new InvalidOperationException("Broker order id missing."),
+            root.TryGetProperty("client_order_id", out var coid) ? coid.GetString() ?? order.ClientOrderId : order.ClientOrderId,
+            root.TryGetProperty("symbol", out var sym) ? sym.GetString() ?? order.Symbol : order.Symbol,
+            root.TryGetProperty("status", out var st) ? st.GetString() ?? "unknown" : "unknown",
+            ParseNullableDecimal(root, "filled_qty"),
+            ParseNullableDecimal(root, "filled_avg_price"),
+            ParseTimestamp(root, "submitted_at"));
+    }
+
     private async Task<BrokerOrderResult?> TryGetByClientOrderIdAsync(string clientOrderId, CancellationToken cancellationToken)
     {
         using var response = await _http.GetAsync($"/v2/orders:by_client_order_id?client_order_id={Uri.EscapeDataString(clientOrderId)}", cancellationToken);

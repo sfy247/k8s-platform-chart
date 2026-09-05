@@ -17,12 +17,47 @@ public sealed record AgentOptions
     public bool TradingEnabled { get; init; }
     public string AlpacaTradingBaseUrl { get; init; } = "https://paper-api.alpaca.markets";
     public string AlpacaDataBaseUrl { get; init; } = "https://data.alpaca.markets";
+
     public string AlpacaApiKeyId { get; init; } = string.Empty;
     public string AlpacaApiSecretKey { get; init; } = string.Empty;
     public string TradingConfigPath { get; init; } = "config/trading.json";
     public string SymbolConfigPath { get; init; } = "config/symbols.json";
     public int EvaluationIntervalSeconds { get; init; } = 60;
     public int BrokerTimeoutSeconds { get; init; } = 10;
+
+    /// <summary>
+    /// Which Alpaca market data feed to quote from.
+    ///
+    /// This is an account-plan property, like the credentials and the
+    /// endpoints, which is why it lives in the environment rather than in
+    /// trading.json — buying a data subscription should not require
+    /// rebuilding the image.
+    ///
+    /// "iex" is the free feed and covers roughly 2-3% of US equity volume.
+    /// When IEX has no size at the inside, an IEX-only quote reads far wider
+    /// than the real market, and this agent correctly refuses to trade on it.
+    /// Measured over one session on AAPL/MSFT/GOOGL/AMZN/NVDA, that discarded
+    /// 20% of all evaluations — 49% on MSFT and 0% on AAPL, a spread that
+    /// tracks IEX liquidity rather than anything about the market.
+    ///
+    /// "sip" is the consolidated tape across every venue and requires a paid
+    /// Alpaca subscription. Switch to it before drawing conclusions about
+    /// whether a strategy works.
+    /// </summary>
+    public string AlpacaDataFeed { get; init; } = DefaultFeed;
+
+    public const string DefaultFeed = "iex";
+
+    /// <summary>
+    /// Only the two feeds that make sense for intraday trading. Alpaca also
+    /// offers delayed feeds; they are excluded deliberately, because a
+    /// 15-minute-old quote is not a quote a day-trading agent should ever be
+    /// pointed at by accident.
+    /// </summary>
+    public static readonly IReadOnlyList<string> SupportedFeeds = ["iex", "sip"];
+
+    /// <summary>The feed in the form the Alpaca API expects.</summary>
+    public string NormalisedDataFeed => AlpacaDataFeed.Trim().ToLowerInvariant();
 
     /// <summary>
     /// Postgres connection string for the decision audit. Supplied by the
@@ -57,6 +92,13 @@ public sealed record AgentOptions
             || !trading.Host.Equals("paper-api.alpaca.markets", StringComparison.OrdinalIgnoreCase))
         {
             errors.Add($"ALPACA_TRADING_BASE_URL must be https://paper-api.alpaca.markets; got '{AlpacaTradingBaseUrl}'.");
+        }
+
+        if (!SupportedFeeds.Contains(NormalisedDataFeed))
+        {
+            errors.Add(
+                $"ALPACA_DATA_FEED must be one of {string.Join(", ", SupportedFeeds)}; got '{AlpacaDataFeed}'. "
+                + "Delayed feeds are excluded deliberately: this agent trades intraday.");
         }
 
         if (TradingEnabled && !HasCredentials)

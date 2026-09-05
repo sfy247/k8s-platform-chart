@@ -25,6 +25,22 @@ public sealed class AuditingOrderExecutor(
     public async Task<BrokerOrderResult> SubmitApprovedOrderAsync(
         ApprovedOrder order, CancellationToken cancellationToken = default)
     {
+        await RecordIntentAsync(order, "SUBMITTING",
+            "Approved by the risk engine; sending to the broker.", cancellationToken);
+        return await inner.SubmitApprovedOrderAsync(order, cancellationToken);
+    }
+
+    public async Task<BrokerOrderResult> LiquidatePositionAsync(
+        ApprovedOrder order, CancellationToken cancellationToken = default)
+    {
+        await RecordIntentAsync(order, "LIQUIDATING",
+            "Approved by the risk engine; closing the position at the broker.", cancellationToken);
+        return await inner.LiquidatePositionAsync(order, cancellationToken);
+    }
+
+    private async Task RecordIntentAsync(
+        ApprovedOrder order, string code, string reason, CancellationToken cancellationToken)
+    {
         var intent = new DecisionRecord
         {
             DecidedAtUtc = order.ApprovedAtUtc,
@@ -32,8 +48,8 @@ public sealed class AuditingOrderExecutor(
             Action = order.Action,
             ProposedNotional = order.Notional,
             Approved = true,
-            DecisionCode = "SUBMITTING",
-            DecisionReason = "Approved by the risk engine; sending to the broker.",
+            DecisionCode = code,
+            DecisionReason = reason,
             ClientOrderId = order.ClientOrderId,
             TradingEnabled = true,
             MarketOpen = true,
@@ -47,12 +63,10 @@ public sealed class AuditingOrderExecutor(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex,
-                "Refusing to submit {ClientOrderId}: the intent could not be recorded.",
+                "Refusing to send {ClientOrderId}: the intent could not be recorded.",
                 order.ClientOrderId);
             throw new InvalidOperationException(
-                "Order not submitted because it could not be recorded in the audit trail.", ex);
+                "Order not sent because it could not be recorded in the audit trail.", ex);
         }
-
-        return await inner.SubmitApprovedOrderAsync(order, cancellationToken);
     }
 }
