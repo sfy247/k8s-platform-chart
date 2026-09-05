@@ -43,7 +43,10 @@ public sealed record AccountRiskState(
     bool HasOpenOrderForSymbol,
     decimal ExistingPositionNotional,
     decimal Equity = 0m,
-    int DayTradeCount = 0);
+    // Null when the broker did not report it. Not zero: zero is a claim that
+    // no day trades have been used, and acting on that claim when it is
+    // unknown fails open on a regulatory limit.
+    int? DayTradeCount = null);
 
 public sealed record RiskDecision(bool Approved, string Code, string Reason, ApprovedOrder? Order = null);
 
@@ -130,7 +133,7 @@ public sealed record ExitDecision(bool ShouldExit, ExitReason Reason, string Exp
 /// </summary>
 public sealed record PositionSnapshot(
     string Symbol,
-    decimal Quantity,
+    decimal? Quantity,
     decimal MarketValue,
     decimal? AverageEntryPrice,
     decimal? CurrentPrice,

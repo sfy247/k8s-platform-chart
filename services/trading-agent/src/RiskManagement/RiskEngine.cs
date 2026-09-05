@@ -78,11 +78,21 @@ public sealed class RiskEngine
         if (state.Equity <= 0)
             return Reject("EQUITY_UNKNOWN", "Account equity is unavailable; the pattern-day-trader limit cannot be evaluated.");
 
+        // Above the threshold the rule simply does not apply, so the count is
+        // not consulted. That matters in practice: Alpaca does not return
+        // daytrade_count for every account type, and depending on a field
+        // that is only sometimes present would fail every cycle — which
+        // would take the end-of-day flatten down with it.
         if (state.Equity >= policy.PdtEquityThreshold) return null;
 
-        if (state.DayTradeCount >= policy.MaxDayTradesUnderPdt)
+        if (state.DayTradeCount is not { } used)
+            return Reject("PDT_COUNT_UNKNOWN",
+                $"Account equity is under {policy.PdtEquityThreshold:C0} but the broker did not report a "
+                + "day-trade count, so the pattern-day-trader limit cannot be evaluated.");
+
+        if (used >= policy.MaxDayTradesUnderPdt)
             return Reject("PDT_LIMIT",
-                $"{state.DayTradeCount} day trades used against a limit of {policy.MaxDayTradesUnderPdt} for accounts under {policy.PdtEquityThreshold:C0}.");
+                $"{used} day trades used against a limit of {policy.MaxDayTradesUnderPdt} for accounts under {policy.PdtEquityThreshold:C0}.");
 
         return null;
     }

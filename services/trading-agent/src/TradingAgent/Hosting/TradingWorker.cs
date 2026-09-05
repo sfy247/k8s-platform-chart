@@ -153,7 +153,7 @@ public sealed class TradingWorker(
         var ordersToday = await accounts.GetTodaysOrdersAsync(cancellationToken);
 
         OpenPositions.Set(account.OpenPositionCount);
-        DayTradesUsed.Set(account.DayTradeCount);
+        if (account.DayTradeCount is { } dayTrades) DayTradesUsed.Set(dayTrades);
 
         var openOrderSymbols = ordersToday
             .Where(o => o.Status is "new" or "accepted" or "partially_filled" or "pending_new")
@@ -364,7 +364,7 @@ public sealed class TradingWorker(
         {
             var account = await accounts.GetAsync(cancellationToken);
             OpenPositions.Set(account.OpenPositionCount);
-            DayTradesUsed.Set(account.DayTradeCount);
+            if (account.DayTradeCount is { } dayTrades) DayTradesUsed.Set(dayTrades);
 
             if (account.OpenPositionCount == 0)
             {

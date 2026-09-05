@@ -156,6 +156,23 @@ The limit gates entries only. Refusing to close a position to protect a
 day-trade count would leave it open overnight, which is a far worse trade
 than the one being avoided.
 
+The broker does not always send `daytrade_count` — it is absent for some
+account types. That field is therefore optional, and the rule degrades in
+the direction of the risk it governs:
+
+| Equity | Count | Behaviour |
+|---|---|---|
+| at or above the threshold | either | rule does not apply; count never read |
+| below the threshold | present | enforced normally |
+| below the threshold | absent | entries refused, `PDT_COUNT_UNKNOWN` |
+
+Exits are never gated by it in any of those cases.
+
+The same principle applies to every field read from the broker: only the
+ones that are load-bearing *and* proven are required. A cycle that throws on
+an unexpectedly missing field does not merely skip an entry — it skips the
+end-of-day flatten, which is the one thing this system must never miss.
+
 ## Trading philosophy for this experiment
 
 The system should behave like a disciplined senior trader running a small controlled experiment:

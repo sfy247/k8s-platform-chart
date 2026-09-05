@@ -28,7 +28,7 @@ fullnameOverride: trading-agent
 
 image:
   repository: trading-agent
-  tag: "0.5.0"
+  tag: "0.5.1"
 
 service:
   port: 80
