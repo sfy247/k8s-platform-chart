@@ -6,11 +6,12 @@ using ClaudeTradingAgent.RiskManagement;
 namespace ClaudeTradingAgent.TradingAgent.Hosting;
 
 /// <summary>
-/// Reads account and position state from the paper broker.
+/// Reads account, position and order state from the paper broker.
 ///
 /// The risk engine refuses to approve anything without this, and it must
 /// never be guessed: an invented cash balance or position count would let a
-/// limit be breached silently.
+/// limit be breached silently. Per-position P&L is read here rather than
+/// remembered locally, so a restarted pod still knows where its stops are.
 /// </summary>
 public sealed class AccountSnapshotProvider
 {
@@ -28,23 +29,38 @@ public sealed class AccountSnapshotProvider
 
     public sealed record Snapshot(
         decimal Cash,
+        decimal Equity,
         decimal PortfolioExposure,
-        int OpenPositionCount,
-        IReadOnlyDictionary<string, decimal> PositionNotionalBySymbol,
-        decimal DayPnl);
+        decimal DayPnl,
+        int DayTradeCount,
+        IReadOnlyList<PositionSnapshot> Positions,
+        IReadOnlyDictionary<string, decimal> PositionNotionalBySymbol)
+    {
+        public int OpenPositionCount => Positions.Count;
+    }
+
+    /// <summary>One of today's orders. Side and fill time are what let an open position be dated.</summary>
+    public sealed record OrderSnapshot(string Symbol, string Status, string Side, DateTimeOffset? FilledAtUtc);
 
     public async Task<Snapshot> GetAsync(CancellationToken cancellationToken)
     {
         var account = await GetJsonAsync($"{_tradingBaseUrl}/v2/account", cancellationToken);
         var cash = ParseDecimal(account, "cash");
+        var equity = ParseDecimal(account, "equity");
 
         // Today's profit and loss, against the previous session's close.
         // This is total P&L rather than realised only, which is the more
         // conservative measure for a daily loss limit: an open position that
         // is down counts against the budget before it is closed, not after.
-        var dayPnl = ParseDecimal(account, "equity") - ParseDecimal(account, "last_equity");
+        var dayPnl = equity - ParseDecimal(account, "last_equity");
+
+        // Day trades used in the rolling five-business-day window, as the
+        // broker counts them. The agent never derives this itself — the
+        // broker's count is the one that triggers the restriction.
+        var dayTradeCount = ParseInt(account, "daytrade_count");
 
         var positions = await GetJsonAsync($"{_tradingBaseUrl}/v2/positions", cancellationToken);
+        var list = new List<PositionSnapshot>();
         var bySymbol = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         decimal exposure = 0m;
 
@@ -56,16 +72,31 @@ public sealed class AccountSnapshotProvider
                 if (string.IsNullOrWhiteSpace(symbol)) continue;
 
                 var marketValue = Math.Abs(ParseDecimal(position, "market_value"));
+
+                // Quantity and market value are strict: without them there is
+                // no position to reason about. The P&L fields are optional so
+                // that a broker response missing one suspends the stop rather
+                // than failing the cycle — a failed cycle also skips the
+                // end-of-day flatten, which is the worse outcome by far.
+                list.Add(new PositionSnapshot(
+                    symbol.ToUpperInvariant(),
+                    ParseDecimal(position, "qty"),
+                    marketValue,
+                    ParseOptionalDecimal(position, "avg_entry_price"),
+                    ParseOptionalDecimal(position, "current_price"),
+                    ParseOptionalDecimal(position, "unrealized_pl"),
+                    ParseOptionalDecimal(position, "unrealized_plpc")));
+
                 bySymbol[symbol] = marketValue;
                 exposure += marketValue;
             }
         }
 
-        return new Snapshot(cash, exposure, bySymbol.Count, bySymbol, dayPnl);
+        return new Snapshot(cash, equity, exposure, dayPnl, dayTradeCount, list, bySymbol);
     }
 
-    /// <summary>Orders already placed today, for the daily rate limits.</summary>
-    public async Task<IReadOnlyList<(string Symbol, string Status)>> GetTodaysOrdersAsync(CancellationToken cancellationToken)
+    /// <summary>Orders already placed today, for the daily rate limits and position dating.</summary>
+    public async Task<IReadOnlyList<OrderSnapshot>> GetTodaysOrdersAsync(CancellationToken cancellationToken)
     {
         var after = DateTimeOffset.UtcNow.Date.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture);
         var root = await GetJsonAsync($"{_tradingBaseUrl}/v2/orders?status=all&after={after}&limit=500", cancellationToken);
@@ -73,9 +104,11 @@ public sealed class AccountSnapshotProvider
         if (root.ValueKind != JsonValueKind.Array) return [];
 
         return root.EnumerateArray()
-            .Select(o => (
-                Symbol: o.TryGetProperty("symbol", out var s) ? s.GetString() ?? string.Empty : string.Empty,
-                Status: o.TryGetProperty("status", out var st) ? st.GetString() ?? string.Empty : string.Empty))
+            .Select(o => new OrderSnapshot(
+                ReadString(o, "symbol"),
+                ReadString(o, "status"),
+                ReadString(o, "side"),
+                ReadNullableTimestamp(o, "filled_at")))
             .Where(o => o.Symbol.Length > 0)
             .ToList();
     }
@@ -92,16 +125,55 @@ public sealed class AccountSnapshotProvider
         return document.RootElement.Clone();
     }
 
+    private static string ReadString(JsonElement element, string property) =>
+        element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? string.Empty
+            : string.Empty;
+
+    private static DateTimeOffset? ReadNullableTimestamp(JsonElement element, string property) =>
+        element.TryGetProperty(property, out var value)
+        && value.ValueKind == JsonValueKind.String
+        && DateTimeOffset.TryParse(value.GetString(), CultureInfo.InvariantCulture,
+                                   DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var ts)
+            ? ts
+            : null;
+
     private static decimal ParseDecimal(JsonElement element, string property)
     {
         if (!element.TryGetProperty(property, out var value))
-            throw new InvalidOperationException($"Account field '{property}' is missing.");
+            throw new InvalidOperationException($"Broker field '{property}' is missing.");
 
         return value.ValueKind switch
         {
             JsonValueKind.Number => value.GetDecimal(),
             JsonValueKind.String when decimal.TryParse(value.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var d) => d,
-            _ => throw new InvalidOperationException($"Account field '{property}' is not numeric."),
+            _ => throw new InvalidOperationException($"Broker field '{property}' is not numeric."),
+        };
+    }
+
+    /// <summary>Null when the broker did not send a usable number. Never zero as a stand-in.</summary>
+    private static decimal? ParseOptionalDecimal(JsonElement element, string property)
+    {
+        if (!element.TryGetProperty(property, out var value)) return null;
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number => value.GetDecimal(),
+            JsonValueKind.String when decimal.TryParse(value.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var d) => d,
+            _ => null,
+        };
+    }
+
+    private static int ParseInt(JsonElement element, string property)
+    {
+        if (!element.TryGetProperty(property, out var value))
+            throw new InvalidOperationException($"Broker field '{property}' is missing.");
+
+        return value.ValueKind switch
+        {
+            JsonValueKind.Number when value.TryGetInt32(out var i) => i,
+            JsonValueKind.String when int.TryParse(value.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var i) => i,
+            _ => throw new InvalidOperationException($"Broker field '{property}' is not an integer."),
         };
     }
 }

@@ -1,37 +1,49 @@
 {
   "environment": "paper",
   "tradingEnabled": true,
+
   "strategy": {
     "name": "momentum-v1",
     "minimumConfidence": 0.70,
     "lookbackBars": 20,
     "minimumVolumeRatio": 1.20,
-    "maximumSpreadBps": 25,
-    "requirePositiveTrend": true,
-    "allowMarketOrders": true,
-    "limitPriceBufferBps": 10,
-    "extendedHours": false
+    "maximumSpreadBps": 25
   },
+
+  "session": {
+    "skipFirstMinutesAfterOpen": 5,
+    "noNewEntriesMinutesBeforeClose": 30,
+    "flattenMinutesBeforeClose": 15
+  },
+
+  "exits": {
+    "stopLossPercent": 0.75,
+    "takeProfitPercent": 1.50,
+    "maxHoldMinutes": 90
+  },
+
   "risk": {
-    "startingCapital": 100.00,
     "maxPositionNotional": 10.00,
     "maxConcurrentPositions": 3,
     "maxDailyRealizedLoss": 3.00,
     "minimumCashReserve": 10.00,
     "maxPortfolioExposure": 30.00,
-    "maxOrdersPerSymbolPerDay": 2,
-    "maxTotalOrdersPerDay": 8,
+    "maxOrdersPerSymbolPerDay": 6,
+    "maxTotalOrdersPerDay": 30,
     "maxDataAgeSeconds": 15,
+    "pdtEquityThreshold": 25000.00,
+    "maxDayTradesUnderPdtThreshold": 3
+  },
+
+  "enforcedInCode": {
+    "_comment": "Not read by the loader. Recorded here so the policy is visible in one place; changing these values has no effect, changing the behaviour requires a reviewed code change.",
+    "paperEndpointOnly": "Execution.PaperEndpointGuard",
+    "timeInForce": "day",
+    "extendedHours": false,
     "allowMargin": false,
     "allowShorting": false,
     "allowOptions": false,
-    "allowCrypto": false
-  },
-  "execution": {
-    "timeInForce": "day",
-    "cancelUnfilledAfterSeconds": 30,
-    "requireMarketOpen": true,
-    "requirePaperEndpoint": true,
-    "reconcileAfterOrder": true
+    "allowCrypto": false,
+    "overnightPositions": false
   }
 }

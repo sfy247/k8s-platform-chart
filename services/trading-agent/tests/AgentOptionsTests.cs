@@ -23,6 +23,41 @@ public sealed class AgentOptionsTests
     public void DefaultConfigurationIsValid()
         => Assert.Empty(Valid().Validate());
 
+    // ── Market data feed ─────────────────────────────────────────────────
+
+    [Fact]
+    public void DefaultsToTheFreeFeed()
+    {
+        // Free by default so a fresh checkout runs without a paid data plan.
+        Assert.Equal("iex", new AgentOptions().NormalisedDataFeed);
+    }
+
+    [Theory]
+    [InlineData("iex")]
+    [InlineData("sip")]
+    [InlineData("SIP")]
+    [InlineData("  sip  ")]
+    public void AcceptsTheSupportedFeeds(string feed)
+        => Assert.Empty((Valid() with { AlpacaDataFeed = feed }).Validate());
+
+    [Theory]
+    [InlineData("delayed_sip")]
+    [InlineData("otc")]
+    [InlineData("")]
+    [InlineData("nonsense")]
+    public void RejectsFeedsThatAreNotSuitableForIntradayTrading(string feed)
+    {
+        // A delayed feed would be caught later by the staleness check, but
+        // failing at startup says why; failing at the staleness check just
+        // looks like an agent that never trades.
+        var errors = (Valid() with { AlpacaDataFeed = feed }).Validate();
+        Assert.Contains(errors, e => e.Contains("ALPACA_DATA_FEED"));
+    }
+
+    [Fact]
+    public void NormalisesTheFeedForTheApi()
+        => Assert.Equal("sip", (Valid() with { AlpacaDataFeed = " SIP " }).NormalisedDataFeed);
+
     [Fact]
     public void DefaultsToPaperAndDisabled()
     {

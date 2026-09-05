@@ -23,6 +23,11 @@ RUN dotnet restore ClaudeTradingAgent.sln
 COPY src/ src/
 COPY tests/ tests/
 
+# The policy files are part of what the tests check: one test loads the real
+# trading.json so a section the loader requires but the file lacks fails here
+# rather than as a crash-looping pod after a deploy.
+COPY config/ config/
+
 FROM build AS test
 RUN dotnet test tests/TradingAgent.Tests.csproj --no-restore
 

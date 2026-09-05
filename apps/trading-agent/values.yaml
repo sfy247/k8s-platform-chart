@@ -1,5 +1,5 @@
-# Paper-trading agent. Evaluates allowlisted symbols on an interval and puts
-# every proposal through the deterministic risk engine.
+# Paper DAY-TRADING agent. Evaluates allowlisted symbols on an interval and
+# puts every proposal through the deterministic risk engine.
 #
 # ORDER SUBMISSION IS ON — paper only, against paper-api.alpaca.markets.
 #
@@ -8,17 +8,27 @@
 # next rollout. Turning it on or off is a reviewed change to this file, never
 # a kubectl command.
 #
+# NOTE: the kill switch also disables the end-of-day flatten, because it stops
+# the agent reaching the broker at all. Turn trading off while a position is
+# open and that position stays open — close it at the broker yourself.
+#
 # What actually bounds the risk, from config/trading.json:
 #   $10 per position, $30 total exposure, 3 concurrent positions,
-#   8 orders/day, 2 per symbol/day, $3 daily loss limit.
+#   30 orders/day, 6 per symbol/day, $3 daily loss limit.
 # The paper account holds $100,000, so these limits — not the balance — are
 # the constraint.
+#
+# What makes it day trading, also from config/trading.json:
+#   0.75% stop, 1.50% target, 90-minute max hold,
+#   no entries in the first 5 minutes or the last 30,
+#   every position closed 15 minutes before the bell.
+# Session bounds come from the exchange calendar, so early closes are handled.
 
 fullnameOverride: trading-agent
 
 image:
   repository: trading-agent
-  tag: "0.4.0"
+  tag: "0.5.0"
 
 service:
   port: 80
@@ -53,7 +63,27 @@ env:
   TRADING_ENABLED: "true"
   ALPACA_TRADING_BASE_URL: "https://paper-api.alpaca.markets"
   ALPACA_DATA_BASE_URL: "https://data.alpaca.markets"
-  EVALUATION_INTERVAL_SECONDS: "60"
+  # Which venues the quotes are built from. This is the single setting most
+  # likely to decide whether this agent ever trades.
+  #
+  #   iex  free. IEX is ~2-3% of US equity volume, so when it has no size at
+  #        the inside its quote reads far wider than the real market and the
+  #        spread filter correctly refuses it.
+  #   sip  the consolidated tape across every venue. Needs a paid Alpaca
+  #        market data subscription.
+  #
+  # Measured over one session on the five allowlisted symbols, iex discarded
+  # 20% of all evaluations on spread — 49% of MSFT, 36% of GOOGL, and 0% of
+  # AAPL and NVDA. Those stocks do not have different real spreads; that
+  # spread tracks IEX liquidity. Switch to sip before concluding anything
+  # about whether a strategy works.
+  #
+  # Watch: trading_agent_market_data_rejections_total{reason="wide_spread"}
+  ALPACA_DATA_FEED: "iex"
+  # 30s, not 60s: this is how often a stop is checked, and a stop that is
+  # only looked at once a minute is a stop the market can walk straight
+  # through. ~30 broker requests a minute, well inside the rate limit.
+  EVALUATION_INTERVAL_SECONDS: "30"
   BROKER_TIMEOUT_SECONDS: "10"
   TRADING_CONFIG_PATH: "config/trading.json"
   SYMBOL_CONFIG_PATH: "config/symbols.json"

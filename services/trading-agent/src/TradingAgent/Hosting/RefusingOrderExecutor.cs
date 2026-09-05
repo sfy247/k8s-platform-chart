@@ -13,13 +13,19 @@ namespace ClaudeTradingAgent.TradingAgent.Hosting;
 /// </summary>
 public sealed class RefusingOrderExecutor(ILogger<RefusingOrderExecutor> logger) : IOrderExecutor
 {
-    public Task<BrokerOrderResult> SubmitApprovedOrderAsync(ApprovedOrder order, CancellationToken cancellationToken = default)
+    public Task<BrokerOrderResult> SubmitApprovedOrderAsync(ApprovedOrder order, CancellationToken cancellationToken = default) =>
+        Refuse(order, "Order submission");
+
+    public Task<BrokerOrderResult> LiquidatePositionAsync(ApprovedOrder order, CancellationToken cancellationToken = default) =>
+        Refuse(order, "Position liquidation");
+
+    private Task<BrokerOrderResult> Refuse(ApprovedOrder order, string what)
     {
         logger.LogCritical(
-            "Order submission attempted while trading is disabled: {ClientOrderId} {Symbol}. This indicates the risk engine was bypassed.",
-            order.ClientOrderId, order.Symbol);
+            "{What} attempted while trading is disabled: {ClientOrderId} {Symbol}. This indicates the risk engine was bypassed.",
+            what, order.ClientOrderId, order.Symbol);
 
         throw new InvalidOperationException(
-            "Trading is disabled. Enable it deliberately in configuration; the executor refuses to submit orders.");
+            "Trading is disabled. Enable it deliberately in configuration; the executor refuses to reach the broker.");
     }
 }
