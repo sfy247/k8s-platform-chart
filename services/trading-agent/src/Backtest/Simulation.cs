@@ -100,7 +100,11 @@ public sealed class Simulation(
                 MarketOpen: true,
                 IsPaperEndpoint: true,
                 HasOpenOrderForSymbol: false,
-                ExistingPositionNotional: heldNotional);
+                ExistingPositionNotional: heldNotional,
+                // The replay does not model session windows, stops or the
+                // flatten, so every bar is treated as inside the entry
+                // window. Its results describe the entry signal only.
+                SessionState: SessionState.EntryWindow);
 
             var decision = _risk.Evaluate(proposal, state, riskPolicy, allowlist, bar.TimestampUtc);
 

@@ -30,59 +30,63 @@ if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(secret))
 // Policies come from the same file the running agent uses, so a backtest
 // measures the configuration actually deployed.
 using var configDoc = JsonDocument.Parse(File.ReadAllText(configPath));
-var strategyCfg = configDoc.RootElement.GetProperty("strategy");
-var riskCfg = configDoc.RootElement.GetProperty("risk");
+var root = configDoc.RootElement;
+var strategyCfg = root.GetProperty("strategy");
+var exitsCfg = root.GetProperty("exits");
+var ordersCfg = root.GetProperty("orderLimits");
 
 var lookback = strategyCfg.GetProperty("lookbackBars").GetInt32();
-var maxSpreadBps = strategyCfg.GetProperty("maximumSpreadBps").GetDecimal();
+var maxSpreadBps = root.GetProperty("maxSpreadPercent").GetDecimal() * 100m;
 var maxDataAge = TimeSpan.FromDays(3650);   // irrelevant when replaying history
+var stopLossPercent = exitsCfg.GetProperty("stopLossPercent").GetDecimal();
 
 var strategyPolicy = new StrategyPolicy(
     strategyCfg.GetProperty("minimumConfidence").GetDecimal(),
     strategyCfg.GetProperty("minimumVolumeRatio").GetDecimal(),
     maxSpreadBps,
-    riskCfg.GetProperty("maxPositionNotional").GetDecimal(),
+    root.GetProperty("maxNotionalPerTrade").GetDecimal(),
     maxDataAge);
 
 // The deployed limits are a production safety policy, not an evaluation
-// tool. With $10 positions, $30 exposure and 8 orders a day against $100,
-// a strategy gets 3-4 trades in a quarter — far too few to say anything
-// about whether it has an edge. --unconstrained relaxes the caps so the
-// SIGNAL can be measured; it says nothing about what should be deployed.
+// tool: at $10 a trade a strategy gets too few trades to measure.
+// --unconstrained relaxes the caps so the SIGNAL can be measured; it says
+// nothing about what should be deployed.
 var unconstrained = Environment.GetCommandLineArgs().Contains("--unconstrained");
 
+// The pattern-day-trader limit is a fact about a real account, not the
+// signal, so it is off in every backtest. The kill switch is on for the
+// same reason: a backtest that honoured it would report a flat line.
 var riskPolicy = unconstrained
-    ? new RiskPolicy(
-        MaxPositionNotional: startingCash / 4m,
-        MaxConcurrentPositions: 5,
-        MaxDailyRealizedLoss: startingCash,      // no daily stop while measuring
-        MinimumCashReserve: 0m,
-        MaxPortfolioExposure: startingCash,      // allow fully invested
-        MaxOrdersPerSymbolPerDay: 20,
-        MaxTotalOrdersPerDay: 100,
-        MaxDataAge: maxDataAge,
-        RequirePaperMode: true,
-        TradingEnabled: true,
-        // The pattern-day-trader limit is a broker-enforced fact about a real
-        // account, not a property of the signal. Zero disables the check so
-        // the backtest measures the strategy rather than the account type.
-        PdtEquityThreshold: 0m,
-        MaxDayTradesUnderPdt: 0)
-    : new RiskPolicy(
-    riskCfg.GetProperty("maxPositionNotional").GetDecimal(),
-    riskCfg.GetProperty("maxConcurrentPositions").GetInt32(),
-    riskCfg.GetProperty("maxDailyRealizedLoss").GetDecimal(),
-    riskCfg.GetProperty("minimumCashReserve").GetDecimal(),
-    riskCfg.GetProperty("maxPortfolioExposure").GetDecimal(),
-    riskCfg.GetProperty("maxOrdersPerSymbolPerDay").GetInt32(),
-    riskCfg.GetProperty("maxTotalOrdersPerDay").GetInt32(),
-    maxDataAge,
-    RequirePaperMode: true,
-    // The kill switch is a production control. A backtest that honoured it
-    // would reject every proposal and report a flat line.
-    TradingEnabled: true,
-    PdtEquityThreshold: 0m,
-    MaxDayTradesUnderPdt: 0);
+    ? new RiskPolicy
+    {
+        TradingEnabled = true,
+        RequirePaperMode = true,
+        StrategyCapital = startingCash,
+        MaxNotionalPerTrade = startingCash / 4m,
+        MaxConcurrentPositions = 5,
+        MaxTotalExposure = startingCash,
+        MaxDailyLoss = startingCash,
+        MaxEstimatedLossPerTrade = startingCash,
+        StopLossPercent = stopLossPercent,
+        MaxDataAge = maxDataAge,
+        MaxOrdersPerSymbolPerDay = 20,
+        MaxTotalOrdersPerDay = 100,
+    }
+    : new RiskPolicy
+    {
+        TradingEnabled = true,
+        RequirePaperMode = true,
+        StrategyCapital = startingCash,
+        MaxNotionalPerTrade = root.GetProperty("maxNotionalPerTrade").GetDecimal(),
+        MaxConcurrentPositions = root.GetProperty("maxConcurrentPositions").GetInt32(),
+        MaxTotalExposure = root.GetProperty("maxTotalExposure").GetDecimal(),
+        MaxDailyLoss = root.GetProperty("maxDailyLoss").GetDecimal(),
+        MaxEstimatedLossPerTrade = root.GetProperty("maxEstimatedLossPerTrade").GetDecimal(),
+        StopLossPercent = stopLossPercent,
+        MaxDataAge = maxDataAge,
+        MaxOrdersPerSymbolPerDay = ordersCfg.GetProperty("maxOrdersPerSymbolPerDay").GetInt32(),
+        MaxTotalOrdersPerDay = ordersCfg.GetProperty("maxTotalOrdersPerDay").GetInt32(),
+    };
 
 if (unconstrained)
     Console.WriteLine("  MEASURING THE SIGNAL: risk caps relaxed. Not a deployable configuration.\n");
@@ -95,7 +99,7 @@ var assumedSpreadBps = decimal.Parse(Arg("--spread-bps", "5"), CultureInfo.Invar
 
 Console.WriteLine($"Backtest  symbols={string.Join(",", symbols)}  days={days}  timeframe={timeframe}");
 Console.WriteLine($"          lookback={lookback} bars  minConfidence={strategyPolicy.MinimumConfidence}"
-                  + $"  maxPosition=${riskPolicy.MaxPositionNotional}  assumedSpread={assumedSpreadBps}bps");
+                  + $"  maxPosition=${riskPolicy.MaxNotionalPerTrade}  assumedSpread={assumedSpreadBps}bps");
 Console.WriteLine();
 
 using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };

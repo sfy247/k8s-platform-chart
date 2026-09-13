@@ -161,6 +161,69 @@ public sealed class AlpacaPaperOrderExecutorTests
             () => executor.SubmitApprovedOrderAsync(Order(TradeAction.Hold)));
     }
 
+    // ── Unclear submission status (rules/execution-rules.md) ─────────────
+
+    private static int Posts(Recorder log) => log.Requests.Count(r => r.Method == HttpMethod.Post);
+    private static int Gets(Recorder log) => log.Requests.Count(r => r.Method == HttpMethod.Get);
+
+    [Fact]
+    public async Task ATimedOutSubmissionIsLookedUpAndReturnedWhenTheBrokerHasIt()
+    {
+        var (executor, log) = Build((req, l) =>
+        {
+            if (req.Method == HttpMethod.Post) throw new TaskCanceledException("timed out");
+            // First lookup is the pre-submit idempotency check; the second is reconciliation.
+            return Gets(l) == 1 ? Json(HttpStatusCode.NotFound, "{}") : Json(HttpStatusCode.OK, OrderJson("brk-late"));
+        });
+
+        var result = await executor.SubmitApprovedOrderAsync(Order());
+
+        Assert.Equal("brk-late", result.BrokerOrderId);
+        Assert.Equal(1, Posts(log));   // never resubmitted
+    }
+
+    [Fact]
+    public async Task AFailedSubmissionTheBrokerConfirmsAbsentIsReportedWithoutResubmitting()
+    {
+        var (executor, log) = Build((req, _) =>
+            req.Method == HttpMethod.Post ? throw new HttpRequestException("connection reset") : Json(HttpStatusCode.NotFound, "{}"));
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(() => executor.SubmitApprovedOrderAsync(Order()));
+
+        Assert.Contains("no order exists", ex.Message);
+        Assert.Equal(1, Posts(log));
+    }
+
+    [Fact]
+    public async Task WhenTheLookupAlsoFailsTheStatusIsUncertain()
+    {
+        var (executor, log) = Build((req, l) =>
+        {
+            if (req.Method == HttpMethod.Post) throw new TaskCanceledException("timed out");
+            return Gets(l) == 1 ? Json(HttpStatusCode.NotFound, "{}") : Json(HttpStatusCode.ServiceUnavailable, "{}");
+        });
+
+        var ex = await Assert.ThrowsAsync<OrderStatusUncertainException>(() => executor.SubmitApprovedOrderAsync(Order()));
+
+        Assert.Equal("cta-20260831-AAPL-abc", ex.ClientOrderId);
+        Assert.Equal("AAPL", ex.Symbol);
+        Assert.Equal(1, Posts(log));
+    }
+
+    [Fact]
+    public async Task AServerErrorIsTreatedAsUnclearNotAsARejection()
+    {
+        var (executor, log) = Build((req, l) =>
+        {
+            if (req.Method == HttpMethod.Post) return Json(HttpStatusCode.BadGateway, "{}");
+            return Gets(l) == 1 ? Json(HttpStatusCode.NotFound, "{}") : Json(HttpStatusCode.OK, OrderJson("brk-booked"));
+        });
+
+        // A 502 can arrive after the order was booked; the lookup finds it.
+        Assert.Equal("brk-booked", (await executor.SubmitApprovedOrderAsync(Order())).BrokerOrderId);
+        Assert.Equal(1, Posts(log));
+    }
+
     [Fact]
     public void RefusesANonPaperEndpoint()
     {

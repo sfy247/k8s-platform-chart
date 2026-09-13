@@ -662,7 +662,7 @@ def trading_agent() -> dict:
     ], "percentunit", 12, 23, w=12, h=8,
         desc="Evaluations that never reached the strategy because the quote was not tradable. "
              "Sustained above a few percent on liquid names is a data-plan problem, not a market one. "
-             "The wrong fix is raising maximumSpreadBps: that makes the agent trade on a quote it has "
+             "The wrong fix is raising maxSpreadPercent: that makes the agent trade on a quote it has "
              "already established is unreliable."))
 
     # ── Orders ────────────────────────────────────────────────────────────

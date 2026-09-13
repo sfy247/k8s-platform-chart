@@ -19,6 +19,9 @@ public sealed class RefusingOrderExecutor(ILogger<RefusingOrderExecutor> logger)
     public Task<BrokerOrderResult> LiquidatePositionAsync(ApprovedOrder order, CancellationToken cancellationToken = default) =>
         Refuse(order, "Position liquidation");
 
+    public Task<BrokerOrderResult?> GetOrderByClientOrderIdAsync(string clientOrderId, CancellationToken cancellationToken = default) =>
+        throw new InvalidOperationException("Trading is disabled; the executor does not contact the broker.");
+
     private Task<BrokerOrderResult> Refuse(ApprovedOrder order, string what)
     {
         logger.LogCritical(

@@ -38,6 +38,10 @@ public sealed class AuditingOrderExecutor(
         return await inner.LiquidatePositionAsync(order, cancellationToken);
     }
 
+    /// <summary>A read: nothing to record before it.</summary>
+    public Task<BrokerOrderResult?> GetOrderByClientOrderIdAsync(string clientOrderId, CancellationToken cancellationToken = default) =>
+        inner.GetOrderByClientOrderIdAsync(clientOrderId, cancellationToken);
+
     private async Task RecordIntentAsync(
         ApprovedOrder order, string code, string reason, CancellationToken cancellationToken)
     {

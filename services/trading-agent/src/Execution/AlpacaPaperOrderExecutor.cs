@@ -28,8 +28,26 @@ public sealed class AlpacaPaperOrderExecutor(HttpClient httpClient, string apiKe
             client_order_id = order.ClientOrderId
         };
 
-        using var response = await _http.PostAsJsonAsync("/v2/orders", payload, cancellationToken);
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.PostAsJsonAsync("/v2/orders", payload, cancellationToken);
+        }
+        catch (Exception ex) when (ex is HttpRequestException
+                                   || (ex is TaskCanceledException && !cancellationToken.IsCancellationRequested))
+        {
+            // Timed out or the connection dropped: the order may exist.
+            return await ConfirmUnclearSubmissionAsync(order, ex, cancellationToken);
+        }
+
+        using var _ = response;
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        // A 5xx says nothing about whether the order was booked before the
+        // failure. A 4xx is a clear refusal and is reported as one.
+        if ((int)response.StatusCode >= 500)
+            return await ConfirmUnclearSubmissionAsync(
+                order, new HttpRequestException($"Broker returned HTTP {(int)response.StatusCode}."), cancellationToken);
         if (!response.IsSuccessStatusCode)
             throw new HttpRequestException($"Paper order rejected with HTTP {(int)response.StatusCode}: {body}");
 
@@ -71,6 +89,34 @@ public sealed class AlpacaPaperOrderExecutor(HttpClient httpClient, string apiKe
             ParseNullableDecimal(root, "filled_qty"),
             ParseNullableDecimal(root, "filled_avg_price"),
             ParseTimestamp(root, "submitted_at"));
+    }
+
+    public Task<BrokerOrderResult?> GetOrderByClientOrderIdAsync(string clientOrderId, CancellationToken cancellationToken = default) =>
+        TryGetByClientOrderIdAsync(clientOrderId, cancellationToken);
+
+    /// <summary>
+    /// rules/execution-rules.md: when submission status is unclear, query by
+    /// client_order_id, reconcile, and never resubmit on a guess.
+    /// </summary>
+    private async Task<BrokerOrderResult> ConfirmUnclearSubmissionAsync(
+        ApprovedOrder order, Exception cause, CancellationToken cancellationToken)
+    {
+        BrokerOrderResult? existing;
+        try
+        {
+            existing = await TryGetByClientOrderIdAsync(order.ClientOrderId, cancellationToken);
+        }
+        catch (Exception lookupFailure) when (lookupFailure is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            throw new OrderStatusUncertainException(order.ClientOrderId, order.Symbol,
+                $"Submission of {order.ClientOrderId} failed ({cause.Message}) and the follow-up lookup also failed; the order may or may not exist.",
+                lookupFailure);
+        }
+
+        // Found: the broker did take it. Absent: confirmed nothing was placed.
+        return existing ?? throw new HttpRequestException(
+            $"Submission of {order.ClientOrderId} failed ({cause.Message}); the broker confirms no order exists, so nothing was placed.",
+            cause);
     }
 
     private async Task<BrokerOrderResult?> TryGetByClientOrderIdAsync(string clientOrderId, CancellationToken cancellationToken)

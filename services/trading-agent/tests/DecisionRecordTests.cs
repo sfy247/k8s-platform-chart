@@ -76,6 +76,27 @@ public sealed class DecisionRecordTests
     }
 
     [Fact]
+    public void TheV3ProposalFieldsAndSessionStateAreRecorded()
+    {
+        var proposal = Proposal() with
+        {
+            EntryType = "market",
+            Invalidation = "Stop at 198.50 (-0.75% from 200.00)",
+            Target = "Take profit at 203.00 (+1.50%), after 90 minutes, or flatten by 15:55 ET",
+        };
+        var decision = new RiskDecision(false, "OUTSIDE_ENTRY_WINDOW", "Session is MANAGEMENT_ONLY.");
+
+        var record = DecisionRecord.From(proposal, decision, null, true, true, "pod-1", "MANAGEMENT_ONLY");
+
+        // v3 audit rule: a row must say what would have proved the trade wrong
+        // and what would have ended it, not only that it was proposed.
+        Assert.Equal("market", record.EntryType);
+        Assert.Equal(proposal.Invalidation, record.Invalidation);
+        Assert.Equal(proposal.Target, record.Target);
+        Assert.Equal("MANAGEMENT_ONLY", record.SessionState);
+    }
+
+    [Fact]
     public async Task TheNullStoreIsSafeToUseWhenNoDatabaseIsConfigured()
     {
         var store = new NullDecisionStore();

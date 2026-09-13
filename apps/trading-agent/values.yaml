@@ -1,5 +1,6 @@
-# Paper DAY-TRADING agent. Evaluates allowlisted symbols on an interval and
-# puts every proposal through the deterministic risk engine.
+# Paper DAY-TRADING agent (v3 spec, see services/trading-agent/CLAUDE.md).
+# Evaluates allowlisted symbols on an interval; every proposal goes through
+# the deterministic risk engine.
 #
 # ORDER SUBMISSION IS ON — paper only, against paper-api.alpaca.markets.
 #
@@ -12,23 +13,24 @@
 # the agent reaching the broker at all. Turn trading off while a position is
 # open and that position stays open — close it at the broker yourself.
 #
-# What actually bounds the risk, from config/trading.json:
-#   $10 per position, $30 total exposure, 3 concurrent positions,
-#   30 orders/day, 6 per symbol/day, $3 daily loss limit.
-# The paper account holds $100,000, so these limits — not the balance — are
-# the constraint.
+# What bounds the risk, from config/trading.json (v3):
+#   $100 strategy capital (the broker shows ~$100,000; limits use $100),
+#   $10 per trade, 2 concurrent positions, $20 total exposure,
+#   $3 daily loss (then no entries for the rest of the session),
+#   $1 estimated loss per trade at the stop.
 #
-# What makes it day trading, also from config/trading.json:
-#   0.75% stop, 1.50% target, 90-minute max hold,
-#   no entries in the first 5 minutes or the last 30,
-#   every position closed 15 minutes before the bell.
-# Session bounds come from the exchange calendar, so early closes are handled.
+# Session, in New York time on a regular day:
+#   09:30-09:35 PRE_MARKET_DISABLED   no entries
+#   09:35-15:30 ENTRY_WINDOW          entries allowed
+#   15:30-15:55 MANAGEMENT_ONLY       exits only
+#   15:55-close FLATTEN_WINDOW        every position closed
+# On an early close each boundary keeps its distance from the real close.
 
 fullnameOverride: trading-agent
 
 image:
   repository: trading-agent
-  tag: "0.5.1"
+  tag: "0.6.0"
 
 service:
   port: 80
