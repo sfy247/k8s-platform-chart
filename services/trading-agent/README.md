@@ -137,6 +137,58 @@ Do **not** raise `maxSpreadPercent` to compensate. That makes the
 agent trade on a quote it has already established is unreliable, and take its
 mid price from the same quote.
 
+## Technical analysis (phase 1)
+
+Deterministic analysis that turns 1-minute candles into what a trader reads off a chart. **It does not trade.** No order, stop, sizing or risk decision uses it yet — later phases build structural stops, trailing stops and position sizing on top of it.
+
+| Project | Contents |
+|---|---|
+| `src/MarketData/Candles.cs` | canonical `Candle`, `Timeframe` (1m/5m/15m), New York session dates, 1m→5m/15m aggregation |
+| `src/Indicators` | SMA, EMA, ATR, session VWAP, relative volume, spread % |
+| `src/TechnicalAnalysis` | swing points, market structure, trend score, support/resistance, breakouts, multi-timeframe analysis |
+| `src/Charting` | chart-ready data: candles, volume, overlays, swings, levels, trade markers |
+
+### Exact definitions
+
+| Calculation | Definition |
+|---|---|
+| SMA(n) | mean of the last n values; null before n values |
+| EMA(n) | α = 2/(n+1), seeded with SMA(n) of the first n values; null before the seed |
+| True range | max(high − low, \|high − prev close\|, \|low − prev close\|); first candle: high − low |
+| ATR(n) | Wilder: first = mean of the first n true ranges, then (ATR × (n−1) + TR) / n |
+| VWAP | Σ(typical × volume) / Σ volume, typical = (H+L+C)/3, **reset each New York session** |
+| RVOL, trailing(n) | volume ÷ mean volume of the previous n candles (current excluded) |
+| RVOL, time-of-day(n) | volume ÷ mean volume at the same clock time over up to n earlier sessions |
+| Spread % | (ask − bid) ÷ midpoint × 100; refuses non-positive or crossed quotes |
+| Swing high | high > the 2 highs before and ≥ the 2 highs after; **exists only once those 2 later candles have closed** |
+| Structure | last two swing highs and lows: HH+HL BULLISH, LH+LL BEARISH, otherwise RANGE; fewer than two of either UNDETERMINED |
+| Trend score | ±15 price vs VWAP, ±20 EMA9 vs EMA20, ±15 EMA20 vs EMA50, ±15 EMA20 slope, ±25 structure, ±10 momentum. ≥ +25 BULLISH, ≤ −25 BEARISH; strength STRONG ≥ 70, MODERATE ≥ 45, WEAK ≥ 25 |
+| Support / resistance | swing prices within 0.10% of a group's mean form one level; below the close = support |
+| Breakout | close beyond level × (1 ± 0.05%) **and** trailing RVOL ≥ 1.5×; a wick that closes back inside is WICK_ONLY |
+
+All periods, tolerances and thresholds live in `TechnicalAnalysisSettings`.
+
+### No look-ahead
+
+- An indicator value at candle *i* uses only candles 0..*i*; appending later candles never changes it (tested).
+- A 5m or 15m candle is emitted only after it has closed.
+- A swing is only visible from its `ConfirmedAtUtc`.
+- A breakout is judged against levels built from the candles *before* the one being tested.
+
+### Endpoints
+
+Internal to the cluster (no ingress):
+
+```bash
+# Chart data: candles + VWAP/EMA9/EMA20/EMA50/SMA20 + swings + levels + analysis
+kubectl get --raw "/api/v1/namespaces/demo/services/trading-agent:80/proxy/charts/AAPL?timeframe=5m"
+
+# 15m / 5m / 1m trend, structure, swings, levels and breakout, as of now
+kubectl get --raw "/api/v1/namespaces/demo/services/trading-agent:80/proxy/analysis/AAPL"
+```
+
+`timeframe` is `1m`, `5m` or `15m`; `start`/`end` are ISO-8601 UTC (default: the last day, at most 7). Allowlisted symbols only. Indicators are warmed up on history before `start`, so the first visible EMA50 is real.
+
 ## Kill-switch caveat
 
 Setting `TRADING_ENABLED=false` stops the agent reaching the broker at all —
@@ -160,7 +212,10 @@ is open, that position stays open. Close it at the broker yourself.
 ├── config/
 ├── src/
 │   ├── TradingAgent/
-│   ├── MarketData/
+│   ├── MarketData/           # quotes, bars, candles, session dates
+│   ├── Indicators/           # SMA, EMA, ATR, VWAP, RVOL, spread
+│   ├── TechnicalAnalysis/    # swings, structure, trend, levels, breakouts
+│   ├── Charting/             # chart-ready series and markers
 │   ├── Strategy/
 │   ├── RiskManagement/       # risk engine + session windows and exits
 │   ├── Execution/

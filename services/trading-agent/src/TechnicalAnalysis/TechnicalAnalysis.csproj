@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>ClaudeTradingAgent.TechnicalAnalysis</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Swings, structure, trend, levels and breakouts, computed from
+         indicators. Deterministic, and deliberately unaware of orders. -->
+    <ProjectReference Include="../MarketData/MarketData.csproj" />
+    <ProjectReference Include="../Indicators/Indicators.csproj" />
+  </ItemGroup>
+
+</Project>

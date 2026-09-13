@@ -39,6 +39,8 @@ The strategy behaves as if it manages `strategyCapital` ($100), even though the 
 23. Every proposal, rejection, approval, order, fill, exit, and exception must be auditable.
 24. When an order's broker status is unknown, or broker and local state disagree: stop new entries, reconcile by `client_order_id`, and never create a duplicate order.
 25. Never switch on a capability the code does not implement. `allowMargin`, `allowShortSelling`, `allowOptions`, `allowCrypto`, `allowOvernightPositions` and `allowExtendedHours` set to `true` refuse startup rather than being silently ignored.
+26. Never compute indicators, swings, market structure, trend, support/resistance or breakouts with a language model. They come from `src/Indicators` and `src/TechnicalAnalysis`, deterministically.
+27. Never use analysis built from a candle, swing or level that had not closed or been confirmed at the decision time.
 
 ## Decision hierarchy
 
@@ -226,4 +228,6 @@ The system should behave like a disciplined senior trader running a small contro
 - `config/symbols.json`: human-owned allowlist.
 - `src/RiskManagement/RiskEngine.cs`: authoritative risk checks.
 - `src/RiskManagement/SessionRules.cs`: session schedule, states, and deterministic exits.
+- `src/Indicators`, `src/TechnicalAnalysis`: deterministic chart analysis (phase 1). Read-only: no order, stop or risk decision uses it yet.
+- `src/Charting`: chart-ready data for UIs and later phases.
 - `src/Execution`: only broker-facing order path.

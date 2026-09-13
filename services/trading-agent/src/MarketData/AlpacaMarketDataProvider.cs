@@ -141,6 +141,43 @@ public sealed class AlpacaMarketDataProvider : IMarketDataProvider
         return result;
     }
 
+    /// <summary>
+    /// Bounded: at most <see cref="MaxRangePages"/> pages of 10,000 bars. A
+    /// request that needs more is refused rather than silently truncated.
+    /// </summary>
+    private const int MaxRangePages = 10;
+
+    public async Task<IReadOnlyList<Bar>> GetOneMinuteBarsAsync(string symbol, DateTimeOffset startUtc, DateTimeOffset endUtc, CancellationToken cancellationToken = default)
+    {
+        if (endUtc <= startUtc) throw new ArgumentException("End must be after start.");
+        var result = new List<Bar>();
+        string? pageToken = null;
+        var pages = 0;
+
+        do
+        {
+            if (++pages > MaxRangePages)
+                throw new InvalidOperationException($"Bar range for {symbol} exceeds {MaxRangePages * 10_000} bars; request a shorter range.");
+
+            var url = $"{_dataBaseUrl}/v2/stocks/{Uri.EscapeDataString(symbol)}/bars?timeframe=1Min"
+                      + $"&start={Uri.EscapeDataString(startUtc.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture))}"
+                      + $"&end={Uri.EscapeDataString(endUtc.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture))}"
+                      + $"&limit=10000&feed={_feed}&sort=asc"
+                      + (pageToken is null ? "" : $"&page_token={Uri.EscapeDataString(pageToken)}");
+            var root = await GetJsonAsync(url, cancellationToken);
+
+            if (root.TryGetProperty("bars", out var bars) && bars.ValueKind == JsonValueKind.Array)
+                result.AddRange(bars.EnumerateArray().Select(b => new Bar(
+                    ReadDecimal(b, "o"), ReadDecimal(b, "h"), ReadDecimal(b, "l"), ReadDecimal(b, "c"),
+                    b.GetProperty("v").GetInt64(), ReadTimestamp(b, "t"))));
+
+            pageToken = root.TryGetProperty("next_page_token", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() : null;
+        }
+        while (pageToken is not null);
+
+        return result.OrderBy(b => b.TimestampUtc).ToList();
+    }
+
     public async Task<AssetMetadata> GetAssetAsync(string symbol, CancellationToken cancellationToken = default)
     {
         var root = await GetJsonAsync($"{_tradingBaseUrl}/v2/assets/{Uri.EscapeDataString(symbol)}", cancellationToken);
