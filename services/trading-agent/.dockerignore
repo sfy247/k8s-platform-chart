@@ -1,6 +1,9 @@
-bin/
-obj/
-TestResults/
+# ** is required: Docker matches a bare 'obj/' only at the context root, so
+# nested build output (src/*/obj) was being copied in and overwriting the
+# image's fresh restore with a stale project graph.
+**/bin/
+**/obj/
+**/TestResults/
 logs/
 .env
 .env.*

@@ -13,6 +13,7 @@
     <ProjectReference Include="../RiskManagement/RiskManagement.csproj" />
     <ProjectReference Include="../Execution/Execution.csproj" />
     <ProjectReference Include="../MarketData/MarketData.csproj" />
+    <ProjectReference Include="../Charting/Charting.csproj" />
     <ProjectReference Include="../Portfolio/Portfolio.csproj" />
     <ProjectReference Include="../Persistence/Persistence.csproj" />
   </ItemGroup>

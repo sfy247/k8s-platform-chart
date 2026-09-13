@@ -11,6 +11,9 @@ WORKDIR /src
 COPY ClaudeTradingAgent.sln Directory.Build.props ./
 COPY src/Strategy/Strategy.csproj                 src/Strategy/
 COPY src/MarketData/MarketData.csproj             src/MarketData/
+COPY src/Indicators/Indicators.csproj             src/Indicators/
+COPY src/TechnicalAnalysis/TechnicalAnalysis.csproj src/TechnicalAnalysis/
+COPY src/Charting/Charting.csproj                 src/Charting/
 COPY src/RiskManagement/RiskManagement.csproj     src/RiskManagement/
 COPY src/Execution/Execution.csproj               src/Execution/
 COPY src/Portfolio/Portfolio.csproj               src/Portfolio/

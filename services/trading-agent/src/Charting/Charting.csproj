@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>ClaudeTradingAgent.Charting</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Chart-ready series: candles plus every overlay a UI draws. A data
+         model, not a UI framework. -->
+    <ProjectReference Include="../MarketData/MarketData.csproj" />
+    <ProjectReference Include="../Indicators/Indicators.csproj" />
+    <ProjectReference Include="../TechnicalAnalysis/TechnicalAnalysis.csproj" />
+  </ItemGroup>
+
+</Project>

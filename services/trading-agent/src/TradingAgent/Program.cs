@@ -1,8 +1,10 @@
+using ClaudeTradingAgent.Charting;
 using ClaudeTradingAgent.Execution;
 using ClaudeTradingAgent.MarketData;
 using ClaudeTradingAgent.Persistence;
 using ClaudeTradingAgent.RiskManagement;
 using ClaudeTradingAgent.Strategy;
+using ClaudeTradingAgent.TechnicalAnalysis;
 using ClaudeTradingAgent.TradingAgent;
 using ClaudeTradingAgent.TradingAgent.Configuration;
 using ClaudeTradingAgent.TradingAgent.Hosting;
@@ -118,6 +120,14 @@ else
 }
 
 builder.Services.AddScoped<TradingCoordinator>();
+
+// ── Technical analysis (phase 1: read-only) ──────────────────────────────
+// Charts and analysis for operators and later phases. Nothing here reaches
+// the trading loop: no order, stop or risk decision uses it yet.
+builder.Services.AddSingleton(TechnicalAnalysisSettings.Default);
+builder.Services.AddTransient<ICandleSource, MarketDataCandleSource>();
+builder.Services.AddTransient<ChartDataBuilder>();
+builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 builder.Services.AddHostedService<TradingWorker>();
 
 var app = builder.Build();
@@ -171,6 +181,46 @@ app.MapGet("/", (AgentState state, AgentOptions o, TradingPolicySet p) => Result
     },
     state = state.Snapshot(),
 }));
+
+// Chart-ready candles, overlays, swings, levels and the analysis behind them.
+//   GET /charts/AAPL?timeframe=5m&start=2026-09-14T13:30:00Z&end=2026-09-14T20:00:00Z
+app.MapGet("/charts/{symbol}", async (
+    string symbol, string? timeframe, DateTimeOffset? start, DateTimeOffset? end,
+    TradingPolicySet p, ChartDataBuilder charts, CancellationToken ct) =>
+{
+    if (!p.Allowlist.Contains(symbol)) return Results.NotFound(new { error = $"{symbol} is not an allowlisted symbol." });
+    if (!TimeframeExtensions.TryParse(timeframe ?? "5m", out var tf)) return Results.BadRequest(new { error = "timeframe must be 1m, 5m or 15m." });
+    var endUtc = (end ?? DateTimeOffset.UtcNow).ToUniversalTime();
+    var startUtc = (start ?? endUtc.AddDays(-1)).ToUniversalTime();
+    if (endUtc <= startUtc || endUtc - startUtc > TimeSpan.FromDays(7)) return Results.BadRequest(new { error = "start must be before end, and the range at most 7 days." });
+    try
+    {
+        return Results.Ok(await charts.BuildAsync(symbol.ToUpperInvariant(), tf, startUtc, endUtc, cancellationToken: ct));
+    }
+    catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
+    {
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+    }
+});
+
+// 15m / 5m / 1m trend, structure, swings, levels and breakout, as of now or ?asOf=.
+app.MapGet("/analysis/{symbol}", async (
+    string symbol, DateTimeOffset? asOf, TradingPolicySet p, ICandleSource candles,
+    TechnicalAnalysisSettings settings, CancellationToken ct) =>
+{
+    if (!p.Allowlist.Contains(symbol)) return Results.NotFound(new { error = $"{symbol} is not an allowlisted symbol." });
+    var asOfUtc = (asOf ?? DateTimeOffset.UtcNow).ToUniversalTime();
+    try
+    {
+        var oneMinute = await candles.GetOneMinuteCandlesAsync(
+            symbol.ToUpperInvariant(), asOfUtc - ChartDataBuilder.WarmUp(Timeframe.FifteenMinutes, settings), asOfUtc, ct);
+        return Results.Ok(new MultiTimeframeAnalyzer(settings).Analyze(oneMinute, asOfUtc));
+    }
+    catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
+    {
+        return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status502BadGateway);
+    }
+});
 
 app.MapMetrics();   // /metrics
 

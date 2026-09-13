@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>ClaudeTradingAgent.Indicators</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Indicators are pure functions over candles. They depend on the
+         candle model and nothing else: no broker, no risk, no strategy. -->
+    <ProjectReference Include="../MarketData/MarketData.csproj" />
+  </ItemGroup>
+
+</Project>
