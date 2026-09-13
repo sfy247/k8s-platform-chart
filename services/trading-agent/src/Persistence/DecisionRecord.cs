@@ -27,6 +27,15 @@ public sealed record DecisionRecord
     public string? ReasoningSummary { get; init; }
     public DateTimeOffset? DataTimestampUtc { get; init; }
 
+    // v3 trade-proposal fields: how the entry is placed, what invalidates the
+    // thesis, and what ends the trade.
+    public string? EntryType { get; init; }
+    public string? Invalidation { get; init; }
+    public string? Target { get; init; }
+
+    /// <summary>ENTRY_WINDOW, MANAGEMENT_ONLY, ... — the session state the decision was made in.</summary>
+    public string? SessionState { get; init; }
+
     // Risk — always present. Code is the machine-readable outcome:
     // APPROVED, KILL_SWITCH, NO_DATA, STALE_DATA, POSITION_LIMIT, ...
     public required bool Approved { get; init; }
@@ -48,8 +57,9 @@ public sealed record DecisionRecord
 
     /// <summary>An evaluation that never produced a proposal.</summary>
     public static DecisionRecord NoData(
-        string symbol, string reason, bool tradingEnabled, bool marketOpen, string pod) => new()
+        string symbol, string reason, bool tradingEnabled, bool marketOpen, string pod, string? sessionState = null) => new()
     {
+        SessionState = sessionState,
         DecidedAtUtc = DateTimeOffset.UtcNow,
         Symbol = symbol,
         Approved = false,
@@ -67,10 +77,15 @@ public sealed record DecisionRecord
         BrokerOrderResult? broker,
         bool tradingEnabled,
         bool marketOpen,
-        string pod) => new()
+        string pod,
+        string? sessionState = null) => new()
     {
         DecidedAtUtc = DateTimeOffset.UtcNow,
         Symbol = proposal.Symbol,
+        EntryType = proposal.EntryType,
+        Invalidation = proposal.Invalidation,
+        Target = proposal.Target,
+        SessionState = sessionState,
         StrategyName = proposal.StrategyName,
         Action = proposal.Action,
         ProposedNotional = proposal.ProposedNotional,

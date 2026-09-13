@@ -4,7 +4,13 @@
 
 Claude assists with research, strategy interpretation, and trade proposals for a **paper day-trading experiment**. Claude is not the broker, not the risk engine, and not the source of truth for account state.
 
-This is a **day-trading** system. Every position is opened and closed inside the same regular session. Holding overnight is not a variation on the strategy — it is a different strategy, with gap risk the agent is not designed to carry, and it is prohibited.
+This is a **day-trading** system (the v3 spec: `rules/`, `skills/`, `agents/`, `docs/architecture.md`). Every position is opened and closed inside the same regular session. Holding overnight is not a variation on the strategy — it is a different strategy, with gap risk the agent is not designed to carry, and it is prohibited.
+
+LLMs interpret and propose. Deterministic code enforces safety and broker state.
+
+## Capital model
+
+The strategy behaves as if it manages `strategyCapital` ($100), even though the paper broker displays a far larger simulated balance. Every cash, exposure and sizing check is made against strategy capital, never against the broker's number.
 
 ## Non-negotiable rules
 
@@ -28,26 +34,21 @@ This is a **day-trading** system. Every position is opened and closed inside the
 18. Never disable, delay, or exempt a position from the end-of-day flatten.
 19. Never re-enter a symbol in order to avoid realising a loss before the close.
 20. Never infer when the session opens or closes. Both come from the exchange calendar.
-21. Never raise `strategy.maximumSpreadBps` to make a thin data feed produce more trades. A refused wide quote is the control working. Widening it makes the agent trade on a price it knows is unreliable, and compute its mid from that same unreliable quote.
+21. Never raise `maxSpreadPercent` to make a thin data feed produce more trades. A refused wide quote is the control working. Widening it makes the agent trade on a price it knows is unreliable, and compute its mid from that same unreliable quote.
 22. Never change `ALPACA_DATA_FEED` to a delayed feed. Startup refuses it; do not work around that.
+23. Every proposal, rejection, approval, order, fill, exit, and exception must be auditable.
+24. When an order's broker status is unknown, or broker and local state disagree: stop new entries, reconcile by `client_order_id`, and never create a duplicate order.
+25. Never switch on a capability the code does not implement. `allowMargin`, `allowShortSelling`, `allowOptions`, `allowCrypto`, `allowOvernightPositions` and `allowExtendedHours` set to `true` refuse startup rather than being silently ignored.
 
 ## Decision hierarchy
 
 ```text
-Human configuration
-      ↓
-Market data validation
-      ↓
-Strategy rules
-      ↓
-Claude proposal
-      ↓
-Deterministic risk engine
-      ↓
-Execution service
-      ↓
-Alpaca PAPER API
+Market Clock → Market Data → Scanner → Market Research Agent → Day Trader Agent
+    → Trade Proposal Record → Deterministic Risk Engine → Execution Service
+    → Alpaca PAPER → Position Manager → End-of-Day Flatten → Portfolio / Audit
 ```
+
+Today the proposal step is the deterministic `momentum-v1` strategy; no language model is called in the live loop. The agent definitions describe the contract any proposer — code or Claude — must meet.
 
 The deterministic risk engine has final authority. A risk rejection is final for that proposal.
 
@@ -59,13 +60,18 @@ Claude trade proposals must conform to:
 {
   "symbol": "AAPL",
   "action": "BUY",
-  "notional": 10.0,
-  "confidence": 0.74,
+  "proposed_notional": 10.0,
+  "entry_type": "market",
   "strategy": "momentum-v1",
-  "reasoning_summary": "Trend and volume criteria satisfied; spread acceptable.",
-  "data_timestamp_utc": "2026-08-24T18:30:00Z"
+  "rationale": "Trend and volume criteria satisfied; spread acceptable.",
+  "invalidation": "Stop at 198.50 (-0.75% from 200.00)",
+  "target": "Take profit at 203.00 (+1.50%), after 90 minutes, or flatten by 15:55 ET",
+  "confidence": 0.74,
+  "timestamp": "2026-09-14T14:05:00Z"
 }
 ```
+
+A `BUY` without an invalidation and a target is incomplete.
 
 Allowed actions:
 
@@ -79,34 +85,33 @@ If any required input is unavailable, emit `HOLD`.
 
 ## Day-trading contract
 
-```text
- open                                                          close
-  |<-- 5m -->|<---------- entries allowed ---------->|<-- 30m --->|
-  |          |                                       |            |
-  | opening  |                                       | no new     |
-  | auction  |                                       | entries    |
-  |          |                                       |     |<-15m>|
-  |          |                                       |     |FLATTEN
-  v          v                                       v     v      v
-```
+Session states (`skills/session-management.md`), New York time on a regular day:
 
-Times come from `config/trading.json`; the open and close come from the
-exchange calendar, so an early close moves every boundary with it.
+| State | Window | Permits |
+|---|---|---|
+| `PRE_MARKET_DISABLED` | 09:30–`entryStartTimeEt` (09:35) | nothing new |
+| `ENTRY_WINDOW` | 09:35–`entryCutoffTimeEt` (15:30) | entries and exits |
+| `MANAGEMENT_ONLY` | 15:30–`flattenTimeEt` (15:55) | exits only |
+| `FLATTEN_WINDOW` | 15:55–close | every position closed |
+| `MARKET_CLOSED` | clock says closed | nothing |
+
+The open and close come from the exchange calendar. On a shortened session each boundary keeps its distance from the real open or close: a 13:00 close gives a 12:30 cutoff and a 12:55 flatten. A fixed 15:55 flatten on that day would come three hours after the market shut.
 
 Exits are not opinions and do not belong to the strategy. Each cycle, before
 any entry is considered, every open position is checked against:
 
 | Rule | Source | Beats |
 |---|---|---|
-| Flatten deadline | `session.flattenMinutesBeforeClose` | everything, including a profitable position |
+| Flatten deadline | `flattenTimeEt` | everything, including a profitable position |
 | Stop loss | `exits.stopLossPercent` | the strategy's opinion |
 | Take profit | `exits.takeProfitPercent` | the strategy's opinion |
 | Max hold | `exits.maxHoldMinutes` | applies only when the broker's fills date the entry |
 
 Exits and entries both pass through the deterministic risk engine, but they
 are judged differently. Limits that exist to stop the agent **taking on**
-risk — exposure, cash reserve, order rate, daily loss, pattern-day-trader
-count — apply to entries only. Applying them to exits would mean an agent
+risk — the entry window, exposure, strategy capital, per-trade loss, order
+rate, the daily loss lockout, unreconciled orders, pattern-day-trader count —
+apply to entries only. Applying them to exits would mean an agent
 that has hit its daily loss limit can no longer close the position that
 caused it, which turns a risk control into a trap.
 
@@ -143,12 +148,12 @@ one session on `iex`, the five allowlisted symbols split 49% (MSFT), 36%
 (GOOGL), 18% (AMZN), 0% (AAPL), 0% (NVDA) — a spread that tracks IEX liquidity,
 not anything about those companies.
 
-The wrong fix is raising `maximumSpreadBps`; see non-negotiable rule 21.
+The wrong fix is raising `maxSpreadPercent`; see non-negotiable rule 21.
 
 ## Pattern day trader
 
-An account under `risk.pdtEquityThreshold` in equity is limited by FINRA to
-`risk.maxDayTradesUnderPdtThreshold` day trades per rolling five business
+An account under `patternDayTrader.equityThreshold` in equity is limited by FINRA to
+`patternDayTrader.maxDayTradesUnderThreshold` day trades per rolling five business
 days. The broker enforces it; the agent models it so entries stop one trade
 early with a readable reason instead of failing at the broker.
 
@@ -173,6 +178,29 @@ ones that are load-bearing *and* proven are required. A cycle that throws on
 an unexpectedly missing field does not merely skip an entry — it skips the
 end-of-day flatten, which is the one thing this system must never miss.
 
+## Agent boundaries
+
+| Agent | May | May not |
+|---|---|---|
+| Market Research | analyze price, volume, trend, volatility, spread; rank approved symbols | place orders, override risk, alter config, access secrets |
+| Day Trader | propose BUY/SELL/HOLD with thesis, invalidation, target, confidence, size | submit orders, ignore stale data, override risk, hold overnight |
+| Risk Manager | advise and audit | approve a trade — only C# does |
+| Position Manager | recommend HOLD/REDUCE/EXIT | bypass deterministic exits |
+| Portfolio Manager | recommend CONTINUE/REDUCE_EXPOSURE/MANAGEMENT_ONLY/STOP_NEW_ENTRIES | override hard limits |
+| Audit | review records and rule adherence | alter broker state, config, or orders |
+
+## Required behavior
+
+- When uncertain: do not guess, do not trade, log the reason, prefer HOLD or REJECT.
+- When broker state conflicts with local state, or an order's status is unknown: stop new entries, reconcile, never duplicate an order.
+- When market data is stale: reject new entries.
+- When the daily loss limit is reached: block all new entries for the rest of the session.
+- When the end-of-day cutoff is reached: block new entries and close all open positions.
+
+## Paper-to-live promotion
+
+Moving to live trading requires explicit human approval, separate live credentials, separate live configuration, completed paper validation, documented risk review, and a manual deployment change. Claude must never make that transition automatically.
+
 ## Trading philosophy for this experiment
 
 The system should behave like a disciplined senior trader running a small controlled experiment:
@@ -190,12 +218,12 @@ The system should behave like a disciplined senior trader running a small contro
 
 ## File ownership
 
-- `agents/market-research.md`: research-only behavior.
-- `agents/trader.md`: proposal generation only.
-- `agents/risk-manager.md`: explains deterministic risk policy; does not override code.
-- `agents/portfolio-manager.md`: account-level recommendations only.
+- `agents/`: market-research, day-trader, risk-manager, position-manager, portfolio-manager, audit-agent — advisory and proposal roles only.
+- `skills/`: the procedures those agents follow.
+- `rules/`: day-trading, risk-management, execution, data and audit rules the code must satisfy.
+- `docs/architecture.md`: the v3 pipeline.
 - `config/trading.json`: human-owned trading/risk policy.
 - `config/symbols.json`: human-owned allowlist.
 - `src/RiskManagement/RiskEngine.cs`: authoritative risk checks.
-- `src/RiskManagement/SessionRules.cs`: entry window and deterministic exits.
+- `src/RiskManagement/SessionRules.cs`: session schedule, states, and deterministic exits.
 - `src/Execution`: only broker-facing order path.

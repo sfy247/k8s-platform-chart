@@ -1,19 +1,30 @@
 {
   "environment": "paper",
   "tradingEnabled": true,
+  "strategyCapital": 100.0,
+  "regularHoursOnly": true,
+  "allowExtendedHours": false,
+  "entryStartTimeEt": "09:35",
+  "entryCutoffTimeEt": "15:30",
+  "flattenTimeEt": "15:55",
+  "maxNotionalPerTrade": 10.0,
+  "maxConcurrentPositions": 2,
+  "maxTotalExposure": 20.0,
+  "maxDailyLoss": 3.0,
+  "maxEstimatedLossPerTrade": 1.0,
+  "allowMargin": false,
+  "allowShortSelling": false,
+  "allowOptions": false,
+  "allowCrypto": false,
+  "allowOvernightPositions": false,
+  "maxQuoteAgeSeconds": 10,
+  "maxSpreadPercent": 0.25,
 
   "strategy": {
     "name": "momentum-v1",
     "minimumConfidence": 0.70,
     "lookbackBars": 20,
-    "minimumVolumeRatio": 1.20,
-    "maximumSpreadBps": 25
-  },
-
-  "session": {
-    "skipFirstMinutesAfterOpen": 5,
-    "noNewEntriesMinutesBeforeClose": 30,
-    "flattenMinutesBeforeClose": 15
+    "minimumVolumeRatio": 1.20
   },
 
   "exits": {
@@ -22,28 +33,13 @@
     "maxHoldMinutes": 90
   },
 
-  "risk": {
-    "maxPositionNotional": 10.00,
-    "maxConcurrentPositions": 3,
-    "maxDailyRealizedLoss": 3.00,
-    "minimumCashReserve": 10.00,
-    "maxPortfolioExposure": 30.00,
+  "orderLimits": {
     "maxOrdersPerSymbolPerDay": 6,
-    "maxTotalOrdersPerDay": 30,
-    "maxDataAgeSeconds": 15,
-    "pdtEquityThreshold": 25000.00,
-    "maxDayTradesUnderPdtThreshold": 3
+    "maxTotalOrdersPerDay": 30
   },
 
-  "enforcedInCode": {
-    "_comment": "Not read by the loader. Recorded here so the policy is visible in one place; changing these values has no effect, changing the behaviour requires a reviewed code change.",
-    "paperEndpointOnly": "Execution.PaperEndpointGuard",
-    "timeInForce": "day",
-    "extendedHours": false,
-    "allowMargin": false,
-    "allowShorting": false,
-    "allowOptions": false,
-    "allowCrypto": false,
-    "overnightPositions": false
+  "patternDayTrader": {
+    "equityThreshold": 25000.00,
+    "maxDayTradesUnderThreshold": 3
   }
 }

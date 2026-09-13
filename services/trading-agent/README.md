@@ -1,4 +1,4 @@
-# Claude Trading Agent — Paper Day-Trading Reference Implementation
+# Claude Day Trading Agent (v3) — Paper Reference Implementation
 
 A safety-first, paper **day-trading** system for evaluating an AI-assisted stock-trading workflow before any real capital is exposed.
 
@@ -13,11 +13,12 @@ Day trading here is a hard property, not a description of intent: every position
 5. **Idempotent orders.** Every approved order gets a unique `client_order_id` so retries do not intentionally create duplicate orders.
 6. **Fail closed.** Missing data, malformed agent output, stale market data, or risk-check failures block execution.
 7. **Observable decisions.** Every proposal, risk decision, and execution result is structured and auditable.
-8. **Small-account realism.** The default risk profile models a $100 paper account and uses fractional-notional orders.
+8. **Strategy capital, not broker balance.** Every limit is measured against `strategyCapital` ($100), whatever the paper broker displays, and orders are fractional-notional.
 9. **No leverage or shorting.** Margin, shorting, options, crypto, and extended-hours trading are disabled.
 10. **Manual promotion only.** Moving from paper to live trading must require deliberate code/configuration changes and new credentials.
 11. **Flat overnight.** The end-of-day flatten is unconditional and is checked before any entry is considered.
 12. **Exits outrank the strategy.** Stops, targets and the flatten deadline are deterministic risk code. A strategy may be wrong about direction; it does not get to decide whether a stop applies.
+13. **Unknown order status stops entries.** A submission whose outcome is unclear is looked up by `client_order_id`, never resubmitted on a guess, and blocks new entries until reconciled.
 
 ## Architecture
 
@@ -59,43 +60,54 @@ The exit pass runs even when entries are blocked. An agent that is barred from
 entering must still be able to leave — otherwise a rule meant to reduce risk
 strands a position overnight.
 
-## Default paper risk policy
+## Default paper risk policy (v3)
 
-- Starting capital assumption: **$100**
-- Maximum new position notional: **$10**
-- Maximum concurrent positions: **3**
-- Maximum daily loss: **$3**
-- Minimum cash reserve: **$10**
-- Orders per day: **30**, per symbol: **6**
-- Margin: **disabled**
-- Shorting: **disabled**
-- Options: **disabled**
-- Crypto: **disabled**
-- Extended hours: **disabled**
-- Overnight positions: **disabled**
-- Fractional-notional market orders: **allowed only during regular market hours and after spread/data-freshness checks**
+| Setting | Value |
+|---|---|
+| `strategyCapital` | $100 |
+| `maxNotionalPerTrade` | $10 |
+| `maxConcurrentPositions` | 2 |
+| `maxTotalExposure` | $20 |
+| `maxDailyLoss` | $3 — then no new entries for the rest of the session |
+| `maxEstimatedLossPerTrade` | $1, measured as notional × stop distance |
+| `maxQuoteAgeSeconds` | 10 |
+| `maxSpreadPercent` | 0.25 (v3 default is 0.5; see below) |
+| `orderLimits` | 30 orders a day, 6 per symbol |
+| Margin, shorting, options, crypto, extended hours, overnight | disabled — a `true` refuses startup |
 
-## Day-trading policy
+No pyramiding: a symbol already held cannot be bought again. These are testing controls, not a promise of profitability.
 
-| Setting | Default | What it does |
+## Session states
+
+| State | Regular day (ET) | Entries | Exits |
+|---|---|---|---|
+| `PRE_MARKET_DISABLED` | 09:30–09:35 | no | yes |
+| `ENTRY_WINDOW` | 09:35–15:30 | yes | yes |
+| `MANAGEMENT_ONLY` | 15:30–15:55 | no | yes |
+| `FLATTEN_WINDOW` | 15:55–16:00 | no | **all positions closed** |
+| `MARKET_CLOSED` | — | no | no |
+
+Clock times come from `entryStartTimeEt`, `entryCutoffTimeEt` and `flattenTimeEt`; the open and close come from the exchange calendar. On an early close each boundary keeps its distance from the real close, so a 13:00 close flattens at 12:55 instead of three hours after the market shut.
+
+Exits (deterministic, every cycle, before entries): the flatten, a 0.75% stop, a 1.5% target, and a 90-minute maximum hold. Position P&L is read from the broker, so a restarted pod still knows where its stops are.
+
+## Deviations from the v3 spec
+
+The `claude-trading/` spec is implemented as written except where noted. Each difference is deliberate and was a human decision on 2026-09-13.
+
+| v3 says | This deployment | Why |
 |---|---|---|
-| `session.skipFirstMinutesAfterOpen` | 5 | No entries during the opening auction's unstable spreads |
-| `session.noNewEntriesMinutesBeforeClose` | 30 | Stops opening positions that would be force-closed minutes later |
-| `session.flattenMinutesBeforeClose` | 15 | **Every position closed**, winning or losing |
-| `exits.stopLossPercent` | 0.75 | Per-position invalidation |
-| `exits.takeProfitPercent` | 1.50 | Per-position target |
-| `exits.maxHoldMinutes` | 90 | Closes a position that has gone nowhere |
-| `risk.pdtEquityThreshold` | 25000 | FINRA pattern-day-trader equity line |
-| `risk.maxDayTradesUnderPdtThreshold` | 3 | Day trades allowed below that line |
+| `tradingEnabled: false` (observation only) | `true` | Disabling trading also disables the end-of-day flatten, and positions opened by the pre-v3 agent were still open. |
+| `maxSpreadPercent: 0.5` | `0.25` | On the free IEX feed a wider limit admits quotes that misstate the real market; the agent would trade on them and price from them. |
+| Flatten at `15:55` ET | 15:55 on regular days; keeps its 5-minute distance from the close on early closes | A fixed 15:55 lands after a 13:00 half-day close, which would carry positions overnight. |
+| Top-level config only | Adds `strategy`, `exits`, `orderLimits`, `patternDayTrader` sections | v3 defines no strategy parameters, exit levels, order-rate limits or PDT handling. |
+| Market Research and Day Trader *agents* propose | The deterministic `momentum-v1` rule proposes | No language model is called in the live loop yet; the agent files define the contract a future proposer must meet. |
 
-Session bounds come from the exchange calendar, so an early close (the day
-after Thanksgiving, Christmas Eve) moves every boundary with it rather than
-leaving the agent flattening after the market has gone home.
+## Order status and reconciliation
 
-Position P&L is read from the broker each cycle, not from a remembered entry
-price, so a restarted pod still knows where its stops are.
+Following `rules/execution-rules.md`: if a submission times out or the broker answers 5xx, the order is looked up by `client_order_id`. Found → recorded. Confirmed absent → reported, never resubmitted automatically. Lookup also fails → `ORDER_STATE_UNCERTAIN`, new entries stop, and each cycle retries the lookup until it settles (`RECONCILED`). Exits continue throughout.
 
-These are testing controls, not a promise of profitability.
+Each cycle also writes every finished order's outcome — fill quantity and price, fill time, cancel/expiry/failure time — back to its audit row.
 
 ## Market data feed
 
@@ -121,7 +133,7 @@ Those five do not have meaningfully different real spreads. The pattern
 tracks IEX liquidity. Move to `sip` before concluding anything about whether
 a strategy has an edge.
 
-Do **not** raise `strategy.maximumSpreadBps` to compensate. That makes the
+Do **not** raise `maxSpreadPercent` to compensate. That makes the
 agent trade on a quote it has already established is unreliable, and take its
 mid price from the same quote.
 
@@ -141,7 +153,10 @@ is open, that position stays open. Close it at the broker yourself.
 ├── .gitignore
 ├── Directory.Build.props
 ├── ClaudeTradingAgent.sln
-├── agents/
+├── agents/                 # six v3 agents: research, day trader, risk, position, portfolio, audit
+├── rules/                  # day-trading, risk, execution, data, audit rules
+├── skills/                 # the procedures the agents follow
+├── docs/architecture.md    # the v3 pipeline
 ├── config/
 ├── src/
 │   ├── TradingAgent/

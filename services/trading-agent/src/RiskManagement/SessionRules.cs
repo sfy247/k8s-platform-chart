@@ -2,106 +2,100 @@ using ClaudeTradingAgent.MarketData;
 
 namespace ClaudeTradingAgent.RiskManagement;
 
-public sealed record EntryWindow(bool IsOpen, string Code, string Reason)
-{
-    public static EntryWindow Allowed { get; } = new(true, "ENTRY_WINDOW_OPEN", "Inside the entry window.");
-}
+/// <summary>The session's boundaries for one day, as absolute instants.</summary>
+public sealed record SessionSchedule(
+    DateTimeOffset OpenUtc,
+    DateTimeOffset EntryStartUtc,
+    DateTimeOffset EntryCutoffUtc,
+    DateTimeOffset FlattenUtc,
+    DateTimeOffset CloseUtc);
 
 /// <summary>
-/// Decides where inside the session the agent may open new positions.
+/// Turns the configured New York clock times into today's schedule and
+/// resolves which session state the agent is in.
 ///
-/// Deliberately separate from the exit rules: an agent that is barred from
-/// entering must still be able to exit, and folding both into one gate is how
-/// a "no trading near the close" rule accidentally becomes "hold overnight".
+/// Entry start keeps its distance from the open; the cutoff and the flatten
+/// keep their distance from the close. On a regular day that is exactly the
+/// configured clock time. On an early close it moves with the close, so the
+/// flatten can never land after the market has shut.
 /// </summary>
 public static class SessionWindow
 {
-    public static EntryWindow EvaluateEntry(TradingSession session, SessionPolicy policy, DateTimeOffset now)
+    public static SessionSchedule Schedule(TradingSession session, SessionPolicy policy)
     {
-        var elapsed = session.Elapsed(now);
-        var remaining = session.Remaining(now);
+        var entryStart = session.OpenUtc + (policy.EntryStartEt - SessionPolicy.RegularOpenEt);
+        var cutoff = session.CloseUtc - (SessionPolicy.RegularCloseEt - policy.EntryCutoffEt);
+        var flatten = session.CloseUtc - (SessionPolicy.RegularCloseEt - policy.FlattenEt);
 
-        if (elapsed < TimeSpan.Zero)
-            return new EntryWindow(false, "SESSION_NOT_STARTED", "The session has not opened yet.");
+        // A session too short to hold an entry window simply has none.
+        if (cutoff < entryStart) cutoff = entryStart;
+        if (flatten < cutoff) flatten = cutoff;
 
-        if (elapsed < policy.NoEntryAfterOpen)
-            return new EntryWindow(false, "OPENING_AUCTION",
-                $"Within the first {policy.NoEntryAfterOpen.TotalMinutes:0} minutes of the session; spreads are unstable.");
-
-        if (remaining <= TimeSpan.Zero)
-            return new EntryWindow(false, "SESSION_ENDED", "The session has closed.");
-
-        if (remaining <= policy.NoEntryBeforeClose)
-            return new EntryWindow(false, "ENTRY_CUTOFF",
-                $"Only {remaining.TotalMinutes:0} minutes remain; new entries stop {policy.NoEntryBeforeClose.TotalMinutes:0} minutes before the close.");
-
-        return EntryWindow.Allowed;
+        return new SessionSchedule(session.OpenUtc, entryStart, cutoff, flatten, session.CloseUtc);
     }
 
-    /// <summary>True once every open position must be closed for the day.</summary>
-    public static bool IsFlattenTime(TradingSession session, SessionPolicy policy, DateTimeOffset now) =>
-        session.Remaining(now) <= policy.FlattenBeforeClose;
+    public static SessionState Resolve(bool marketOpen, SessionSchedule schedule, DateTimeOffset now)
+    {
+        if (!marketOpen) return SessionState.MarketClosed;
+        if (now < schedule.EntryStartUtc) return SessionState.PreMarketDisabled;
+        if (now < schedule.EntryCutoffUtc) return SessionState.EntryWindow;
+        if (now < schedule.FlattenUtc) return SessionState.ManagementOnly;
+
+        // Past the flatten time while the clock still says open — including
+        // any skew past the close — keeps trying to get flat.
+        return SessionState.FlattenWindow;
+    }
+
+    public static string Label(SessionState state) => state switch
+    {
+        SessionState.PreMarketDisabled => "PRE_MARKET_DISABLED",
+        SessionState.EntryWindow => "ENTRY_WINDOW",
+        SessionState.ManagementOnly => "MANAGEMENT_ONLY",
+        SessionState.FlattenWindow => "FLATTEN_WINDOW",
+        _ => "MARKET_CLOSED",
+    };
 }
 
 /// <summary>
-/// Decides when an open position must be closed.
-///
-/// This is deterministic and lives in RiskManagement rather than in a
-/// strategy on purpose. Exits are not an opinion about the market: the
-/// strategy is allowed to be wrong about direction, but it is not allowed to
-/// decide whether a stop applies or whether the position survives the close.
+/// Decides when an open position must be closed. Deterministic risk code,
+/// not strategy: v3's rule is that hard exits must not depend on an LLM, and
+/// the strategy does not get to decide whether a stop applies.
 /// </summary>
 public static class ExitManager
 {
     public static ExitDecision Evaluate(
         PositionSnapshot position,
         ExitPolicy exitPolicy,
-        SessionPolicy sessionPolicy,
-        TradingSession session,
+        SessionSchedule schedule,
         DateTimeOffset now)
     {
-        // Market value, not quantity: a position appearing in the broker's
-        // positions list with a value is the signal that there is something
-        // to close. Quantity is informational and may be absent.
         if (position.MarketValue <= 0) return ExitDecision.Hold;
 
-        // Unconditional, and checked first so that no later rule — or bug in
-        // one — can prevent the position being flat for the night.
-        if (SessionWindow.IsFlattenTime(session, sessionPolicy, now))
+        // Checked first so no later rule, or a bug in one, can keep the
+        // position through the night.
+        if (now >= schedule.FlattenUtc)
         {
-            var remaining = session.Remaining(now);
+            var remaining = schedule.CloseUtc - now;
             return new ExitDecision(true, ExitReason.SessionClose,
                 remaining <= TimeSpan.Zero
                     ? "The session has closed; day-trading positions are not carried overnight."
                     : $"{remaining.TotalMinutes:0} minutes to the close; flattening for the day.");
         }
 
-        // No P&L from the broker means no stop and no target this cycle. The
-        // alternative — treating a missing number as zero — would report every
-        // position as flat and quietly switch the stops off.
         if (position.UnrealizedPnlFraction is { } fraction)
         {
             var pnlPercent = fraction * 100m;
-
             if (pnlPercent <= -exitPolicy.StopLossPercent)
                 return new ExitDecision(true, ExitReason.StopLoss,
                     $"Down {pnlPercent:0.00}%, past the {exitPolicy.StopLossPercent:0.00}% stop.");
-
             if (pnlPercent >= exitPolicy.TakeProfitPercent)
                 return new ExitDecision(true, ExitReason.TakeProfit,
                     $"Up {pnlPercent:0.00}%, at the {exitPolicy.TakeProfitPercent:0.00}% target.");
         }
 
-        // Only when the broker's own fill history tells us when the position
-        // was opened. An unknown open time means no max-hold check, never a
-        // guessed one — the flatten deadline still bounds the hold.
-        if (position.OpenedAtUtc is { } openedAt)
-        {
-            var held = now - openedAt;
-            if (held >= exitPolicy.MaxHoldTime)
-                return new ExitDecision(true, ExitReason.MaxHoldTime,
-                    $"Held {held.TotalMinutes:0} minutes without reaching the stop or the target; the setup has expired.");
-        }
+        if (position.OpenedAtUtc is { } openedAt && now - openedAt >= exitPolicy.MaxHoldTime)
+            return new ExitDecision(true, ExitReason.MaxHoldTime,
+                $"Held {(now - openedAt).TotalMinutes:0} minutes without reaching the stop or the target; the setup has expired.");
 
         return ExitDecision.Hold;
     }

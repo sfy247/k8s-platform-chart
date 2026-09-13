@@ -6,12 +6,5 @@
     "AMZN",
     "NVDA"
   ],
-  "denylist": [],
-  "rules": {
-    "usEquitiesOnly": true,
-    "requireTradable": true,
-    "requireFractionable": true,
-    "minimumPrice": 1.00,
-    "maximumPrice": 1000.00
-  }
+  "notes": "Development/test universe only; not a recommendation to trade these symbols."
 }

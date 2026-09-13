@@ -1,59 +1,53 @@
+using System.Globalization;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using ClaudeTradingAgent.RiskManagement;
 using ClaudeTradingAgent.Strategy;
 
 namespace ClaudeTradingAgent.TradingAgent.Configuration;
 
-/// <summary>Shape of config/trading.json.</summary>
+/// <summary>
+/// Shape of config/trading.json. The top-level keys are the v3 day-trading
+/// spec verbatim; the nested sections carry what that spec leaves to the
+/// implementation (strategy parameters, exit levels, order-rate limits, PDT).
+/// </summary>
 public sealed record TradingConfigFile(
-    [property: JsonPropertyName("environment")] string Environment,
-    [property: JsonPropertyName("tradingEnabled")] bool TradingEnabled,
-    [property: JsonPropertyName("strategy")] StrategyConfig? Strategy,
-    [property: JsonPropertyName("session")] SessionConfig? Session,
-    [property: JsonPropertyName("exits")] ExitConfig? Exits,
-    [property: JsonPropertyName("risk")] RiskConfig? Risk);
+    string Environment,
+    bool TradingEnabled,
+    decimal StrategyCapital,
+    bool RegularHoursOnly,
+    bool AllowExtendedHours,
+    string? EntryStartTimeEt,
+    string? EntryCutoffTimeEt,
+    string? FlattenTimeEt,
+    decimal MaxNotionalPerTrade,
+    int MaxConcurrentPositions,
+    decimal MaxTotalExposure,
+    decimal MaxDailyLoss,
+    decimal MaxEstimatedLossPerTrade,
+    bool AllowMargin,
+    bool AllowShortSelling,
+    bool AllowOptions,
+    bool AllowCrypto,
+    bool AllowOvernightPositions,
+    int MaxQuoteAgeSeconds,
+    decimal MaxSpreadPercent,
+    StrategyConfig? Strategy,
+    ExitConfig? Exits,
+    OrderLimitsConfig? OrderLimits,
+    PatternDayTraderConfig? PatternDayTrader);
 
-public sealed record StrategyConfig(
-    [property: JsonPropertyName("name")] string Name,
-    [property: JsonPropertyName("minimumConfidence")] decimal MinimumConfidence,
-    [property: JsonPropertyName("lookbackBars")] int LookbackBars,
-    [property: JsonPropertyName("minimumVolumeRatio")] decimal MinimumVolumeRatio,
-    [property: JsonPropertyName("maximumSpreadBps")] decimal MaximumSpreadBps);
+public sealed record StrategyConfig(string Name, decimal MinimumConfidence, int LookbackBars, decimal MinimumVolumeRatio);
+public sealed record ExitConfig(decimal StopLossPercent, decimal TakeProfitPercent, int MaxHoldMinutes);
+public sealed record OrderLimitsConfig(int MaxOrdersPerSymbolPerDay, int MaxTotalOrdersPerDay);
+public sealed record PatternDayTraderConfig(decimal EquityThreshold, int MaxDayTradesUnderThreshold);
 
-/// <summary>Where inside the trading day the agent may act. Minutes, because that is how a trader thinks about a session.</summary>
-public sealed record SessionConfig(
-    [property: JsonPropertyName("skipFirstMinutesAfterOpen")] int SkipFirstMinutesAfterOpen,
-    [property: JsonPropertyName("noNewEntriesMinutesBeforeClose")] int NoNewEntriesMinutesBeforeClose,
-    [property: JsonPropertyName("flattenMinutesBeforeClose")] int FlattenMinutesBeforeClose);
-
-/// <summary>Per-position invalidation. Percentages of the entry price, not of the account.</summary>
-public sealed record ExitConfig(
-    [property: JsonPropertyName("stopLossPercent")] decimal StopLossPercent,
-    [property: JsonPropertyName("takeProfitPercent")] decimal TakeProfitPercent,
-    [property: JsonPropertyName("maxHoldMinutes")] int MaxHoldMinutes);
-
-public sealed record RiskConfig(
-    [property: JsonPropertyName("maxPositionNotional")] decimal MaxPositionNotional,
-    [property: JsonPropertyName("maxConcurrentPositions")] int MaxConcurrentPositions,
-    [property: JsonPropertyName("maxDailyRealizedLoss")] decimal MaxDailyRealizedLoss,
-    [property: JsonPropertyName("minimumCashReserve")] decimal MinimumCashReserve,
-    [property: JsonPropertyName("maxPortfolioExposure")] decimal MaxPortfolioExposure,
-    [property: JsonPropertyName("maxOrdersPerSymbolPerDay")] int MaxOrdersPerSymbolPerDay,
-    [property: JsonPropertyName("maxTotalOrdersPerDay")] int MaxTotalOrdersPerDay,
-    [property: JsonPropertyName("maxDataAgeSeconds")] int MaxDataAgeSeconds,
-    [property: JsonPropertyName("pdtEquityThreshold")] decimal PdtEquityThreshold,
-    [property: JsonPropertyName("maxDayTradesUnderPdtThreshold")] int MaxDayTradesUnderPdtThreshold);
-
-/// <summary>Shape of config/symbols.json.</summary>
-public sealed record SymbolConfigFile(
-    [property: JsonPropertyName("allowlist")] IReadOnlyList<string> Allowlist,
-    [property: JsonPropertyName("denylist")] IReadOnlyList<string> Denylist);
+/// <summary>Shape of config/symbols.json. The denylist is optional; v3 omits it.</summary>
+public sealed record SymbolConfigFile(IReadOnlyList<string>? Allowlist, IReadOnlyList<string>? Denylist, string? Notes);
 
 /// <summary>
-/// Loads the two config files and turns them into the domain's own policy
-/// types. Loaded once at startup: a trading policy that can change under a
-/// running evaluation is a policy nobody can audit.
+/// Loads both config files into the domain's policy types, once, at startup.
+/// Every problem is collected and reported together, so one failed start
+/// shows everything that is wrong rather than one error per redeploy.
 /// </summary>
 public sealed class TradingPolicySet
 {
@@ -73,87 +67,120 @@ public sealed class TradingPolicySet
 
     public static TradingPolicySet Load(AgentOptions options)
     {
-        var trading = Read<TradingConfigFile>(options.TradingConfigPath);
+        var t = Read<TradingConfigFile>(options.TradingConfigPath);
         var symbols = Read<SymbolConfigFile>(options.SymbolConfigPath);
+        var errors = new List<string>();
 
-        if (!string.Equals(trading.Environment, "paper", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"trading.json declares environment '{trading.Environment}'; only 'paper' is supported.");
+        if (!string.Equals(t.Environment, "paper", StringComparison.OrdinalIgnoreCase))
+            errors.Add($"environment is '{t.Environment}'; only 'paper' is supported.");
 
-        var strategy = Require(trading.Strategy, "strategy");
-        var session = Require(trading.Session, "session");
-        var exits = Require(trading.Exits, "exits");
-        var risk = Require(trading.Risk, "risk");
+        // These features are not implemented. A flag set to true is refused
+        // rather than ignored: silently running without a capability someone
+        // switched on is worse than not starting.
+        if (!t.RegularHoursOnly) errors.Add("regularHoursOnly must be true; this build trades the regular session only.");
+        foreach (var (name, value) in new[]
+                 {
+                     ("allowExtendedHours", t.AllowExtendedHours), ("allowMargin", t.AllowMargin),
+                     ("allowShortSelling", t.AllowShortSelling), ("allowOptions", t.AllowOptions),
+                     ("allowCrypto", t.AllowCrypto), ("allowOvernightPositions", t.AllowOvernightPositions),
+                 })
+        {
+            if (value) errors.Add($"{name} must be false; this build does not support it.");
+        }
 
-        var allowed = symbols.Allowlist
+        if (t.StrategyCapital <= 0) errors.Add("strategyCapital must be greater than zero.");
+        if (t.MaxNotionalPerTrade <= 0) errors.Add("maxNotionalPerTrade must be greater than zero.");
+        if (t.MaxTotalExposure < t.MaxNotionalPerTrade) errors.Add("maxTotalExposure must be at least maxNotionalPerTrade.");
+        if (t.MaxTotalExposure > t.StrategyCapital) errors.Add("maxTotalExposure cannot exceed strategyCapital.");
+        if (t.MaxConcurrentPositions < 1) errors.Add("maxConcurrentPositions must be at least 1.");
+        if (t.MaxDailyLoss <= 0) errors.Add("maxDailyLoss must be greater than zero.");
+        if (t.MaxEstimatedLossPerTrade <= 0) errors.Add("maxEstimatedLossPerTrade must be greater than zero.");
+        if (t.MaxQuoteAgeSeconds <= 0) errors.Add("maxQuoteAgeSeconds must be greater than zero.");
+        if (t.MaxSpreadPercent is <= 0 or > 5) errors.Add("maxSpreadPercent must be greater than 0 and at most 5.");
+
+        var entryStart = ParseTime(t.EntryStartTimeEt, "entryStartTimeEt", errors);
+        var cutoff = ParseTime(t.EntryCutoffTimeEt, "entryCutoffTimeEt", errors);
+        var flatten = ParseTime(t.FlattenTimeEt, "flattenTimeEt", errors);
+        var session = new SessionPolicy(entryStart, cutoff, flatten);
+        if (t.EntryStartTimeEt is not null && t.EntryCutoffTimeEt is not null && t.FlattenTimeEt is not null)
+            errors.AddRange(session.Validate());
+
+        if (t.Strategy is null) errors.Add("the 'strategy' section is missing.");
+        if (t.Exits is null) errors.Add("the 'exits' section is missing.");
+        if (t.OrderLimits is null) errors.Add("the 'orderLimits' section is missing.");
+
+        var exits = t.Exits is null ? null : new ExitPolicy(t.Exits.StopLossPercent, t.Exits.TakeProfitPercent, TimeSpan.FromMinutes(t.Exits.MaxHoldMinutes));
+        if (exits is not null)
+        {
+            errors.AddRange(exits.Validate());
+            // A full-size trade whose stop already breaches the per-trade loss
+            // limit would be rejected every time: a contradiction, not a policy.
+            if (t.MaxNotionalPerTrade * exits.StopLossPercent / 100m > t.MaxEstimatedLossPerTrade)
+                errors.Add("maxNotionalPerTrade × exits.stopLossPercent exceeds maxEstimatedLossPerTrade; every full-size trade would be rejected.");
+        }
+
+        var allowed = (symbols.Allowlist ?? [])
             .Select(s => s.Trim().ToUpperInvariant())
             .Where(s => s.Length > 0)
-            .Except(symbols.Denylist.Select(s => s.Trim().ToUpperInvariant()))
+            .Except((symbols.Denylist ?? []).Select(s => s.Trim().ToUpperInvariant()))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (allowed.Count == 0) errors.Add("the symbol allowlist is empty; there is nothing the agent may trade.");
 
-        if (allowed.Count == 0)
-            throw new InvalidOperationException("The symbol allowlist is empty; there is nothing the agent may trade.");
-
-        var maxDataAge = TimeSpan.FromSeconds(risk.MaxDataAgeSeconds);
-
-        var sessionPolicy = new SessionPolicy(
-            TimeSpan.FromMinutes(session.SkipFirstMinutesAfterOpen),
-            TimeSpan.FromMinutes(session.NoNewEntriesMinutesBeforeClose),
-            TimeSpan.FromMinutes(session.FlattenMinutesBeforeClose));
-
-        var exitPolicy = new ExitPolicy(
-            exits.StopLossPercent,
-            exits.TakeProfitPercent,
-            TimeSpan.FromMinutes(exits.MaxHoldMinutes));
-
-        // Fail fast rather than starting with a session policy that would let
-        // a position survive the close.
-        var errors = sessionPolicy.Validate().Concat(exitPolicy.Validate()).ToList();
         if (errors.Count > 0)
             throw new InvalidOperationException(
-                $"Invalid day-trading policy in {options.TradingConfigPath}: {string.Join(" ", errors)}");
+                $"Invalid trading configuration ({options.TradingConfigPath}, {options.SymbolConfigPath}):\n  - "
+                + string.Join("\n  - ", errors));
+
+        var maxDataAge = TimeSpan.FromSeconds(t.MaxQuoteAgeSeconds);
 
         return new TradingPolicySet
         {
-            StrategyName = strategy.Name,
-            LookbackBars = strategy.LookbackBars,
+            StrategyName = t.Strategy!.Name,
+            LookbackBars = t.Strategy.LookbackBars,
             Allowlist = allowed,
-            Session = sessionPolicy,
-            Exits = exitPolicy,
+            Session = session,
+            Exits = exits!,
             Strategy = new MomentumPolicy(
-                strategy.MinimumConfidence,
-                strategy.MinimumVolumeRatio,
-                strategy.MaximumSpreadBps,
-                risk.MaxPositionNotional,
+                t.Strategy.MinimumConfidence,
+                t.Strategy.MinimumVolumeRatio,
+                MaximumSpreadBps: t.MaxSpreadPercent * 100m,
+                t.MaxNotionalPerTrade,
                 maxDataAge),
-            Risk = new RiskPolicy(
-                risk.MaxPositionNotional,
-                risk.MaxConcurrentPositions,
-                risk.MaxDailyRealizedLoss,
-                risk.MinimumCashReserve,
-                risk.MaxPortfolioExposure,
-                risk.MaxOrdersPerSymbolPerDay,
-                risk.MaxTotalOrdersPerDay,
-                maxDataAge,
-                RequirePaperMode: true,
+            Risk = new RiskPolicy
+            {
                 // Both the file and the environment must agree before trading
                 // is possible. Either one set to false is a kill switch.
-                TradingEnabled: trading.TradingEnabled && options.TradingEnabled,
-                PdtEquityThreshold: risk.PdtEquityThreshold,
-                MaxDayTradesUnderPdt: risk.MaxDayTradesUnderPdtThreshold),
+                TradingEnabled = t.TradingEnabled && options.TradingEnabled,
+                RequirePaperMode = true,
+                StrategyCapital = t.StrategyCapital,
+                MaxNotionalPerTrade = t.MaxNotionalPerTrade,
+                MaxConcurrentPositions = t.MaxConcurrentPositions,
+                MaxTotalExposure = t.MaxTotalExposure,
+                MaxDailyLoss = t.MaxDailyLoss,
+                MaxEstimatedLossPerTrade = t.MaxEstimatedLossPerTrade,
+                StopLossPercent = exits!.StopLossPercent,
+                MaxDataAge = maxDataAge,
+                MaxOrdersPerSymbolPerDay = t.OrderLimits!.MaxOrdersPerSymbolPerDay,
+                MaxTotalOrdersPerDay = t.OrderLimits.MaxTotalOrdersPerDay,
+                PdtEquityThreshold = t.PatternDayTrader?.EquityThreshold ?? 0m,
+                MaxDayTradesUnderPdt = t.PatternDayTrader?.MaxDayTradesUnderThreshold ?? 0,
+            },
         };
     }
 
-    private static T Require<T>(T? section, string name) where T : class =>
-        section ?? throw new InvalidOperationException(
-            $"trading.json is missing the required '{name}' section.");
+    private static TimeOnly ParseTime(string? value, string name, List<string> errors)
+    {
+        if (TimeOnly.TryParseExact(value, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out var time))
+            return time;
+        errors.Add($"{name} must be a New York time in HH:mm form; got '{value}'.");
+        return default;
+    }
 
     private static T Read<T>(string path)
     {
         if (!File.Exists(path))
             throw new FileNotFoundException($"Required configuration file not found: {path}");
-
-        var json = File.ReadAllText(path);
-        return JsonSerializer.Deserialize<T>(json, JsonOptions)
+        return JsonSerializer.Deserialize<T>(File.ReadAllText(path), JsonOptions)
                ?? throw new InvalidOperationException($"Configuration file {path} deserialised to null.");
     }
 }

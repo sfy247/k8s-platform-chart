@@ -1,11 +1,12 @@
 namespace ClaudeTradingAgent.TradingAgent.Observability;
 
 /// <summary>
-/// What readiness reports on.
+/// What readiness reports on, plus the few facts that must outlive a single
+/// evaluation cycle: the daily-loss lockout, orders whose broker status is
+/// unconfirmed, and which order outcomes have already been audited.
 ///
-/// The agent is ready once a full evaluation cycle has completed. Before
-/// that it may be unable to reach the broker, and a pod that cannot see the
-/// market should not be reporting itself fit.
+/// In memory by design. A restarted pod re-derives the lockout from broker
+/// P&L on its first cycle, and re-reads today's orders from the broker.
 /// </summary>
 public sealed class AgentState
 {
@@ -14,6 +15,11 @@ public sealed class AgentState
     private string _lastOutcome = "no cycle has run yet";
     private string? _lastError;
     private int _consecutiveFailures;
+    private string _sessionState = "UNKNOWN";
+    private DateOnly? _lockoutDate;
+    private readonly Dictionary<string, string> _uncertainOrders = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _auditedOutcomes = new(StringComparer.Ordinal);
+    private DateOnly? _auditedDate;
 
     public bool IsReady
     {
@@ -31,6 +37,9 @@ public sealed class AgentState
                 lastOutcome = _lastOutcome,
                 consecutiveFailures = _consecutiveFailures,
                 lastError = _lastError,
+                sessionState = _sessionState,
+                dailyLossLockout = _lockoutDate is not null,
+                uncertainOrders = _uncertainOrders.Count,
             };
         }
     }
@@ -50,10 +59,76 @@ public sealed class AgentState
     {
         lock (_gate)
         {
-            // Truncated: an error message is diagnostic context, not a payload,
-            // and broker errors can be long.
             _lastError = error.Length > 300 ? error[..300] : error;
             _consecutiveFailures++;
+        }
+    }
+
+    public void RecordSessionState(string label)
+    {
+        lock (_gate) { _sessionState = label; }
+    }
+
+    // ── Daily loss lockout ────────────────────────────────────────────────
+    // v3: once the daily loss limit is reached, new entries stay blocked for
+    // the rest of the session even if P&L recovers.
+
+    /// <summary>Latches the lockout for a session. True only the first time.</summary>
+    public bool LatchDailyLockout(DateOnly sessionDate)
+    {
+        lock (_gate)
+        {
+            if (_lockoutDate == sessionDate) return false;
+            _lockoutDate = sessionDate;
+            return true;
+        }
+    }
+
+    public bool IsLockedOut(DateOnly sessionDate)
+    {
+        lock (_gate)
+        {
+            if (_lockoutDate is { } d && d != sessionDate) _lockoutDate = null;   // a new session clears it
+            return _lockoutDate == sessionDate;
+        }
+    }
+
+    // ── Orders with unconfirmed broker status ─────────────────────────────
+
+    public void MarkUncertain(string clientOrderId, string symbol)
+    {
+        lock (_gate) { _uncertainOrders[clientOrderId] = symbol; }
+    }
+
+    public void ResolveUncertain(string clientOrderId)
+    {
+        lock (_gate) { _uncertainOrders.Remove(clientOrderId); }
+    }
+
+    public IReadOnlyList<(string ClientOrderId, string Symbol)> UncertainOrders()
+    {
+        lock (_gate) { return _uncertainOrders.Select(kv => (kv.Key, kv.Value)).ToList(); }
+    }
+
+    // ── Order outcomes already written to the audit ───────────────────────
+
+    /// <summary>Whether this order outcome has already been written for the session.</summary>
+    public bool IsOutcomeAudited(DateOnly sessionDate, string brokerOrderId, string status)
+    {
+        lock (_gate)
+        {
+            if (_auditedDate != sessionDate) { _auditedOutcomes.Clear(); _auditedDate = sessionDate; }
+            return _auditedOutcomes.Contains($"{brokerOrderId}:{status}");
+        }
+    }
+
+    /// <summary>Call only after the write succeeds, so a failed write is retried next cycle.</summary>
+    public void MarkOutcomeAudited(DateOnly sessionDate, string brokerOrderId, string status)
+    {
+        lock (_gate)
+        {
+            if (_auditedDate != sessionDate) { _auditedOutcomes.Clear(); _auditedDate = sessionDate; }
+            _auditedOutcomes.Add($"{brokerOrderId}:{status}");
         }
     }
 }

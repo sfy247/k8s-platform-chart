@@ -39,8 +39,26 @@ public sealed class AccountSnapshotProvider
         public int OpenPositionCount => Positions.Count;
     }
 
-    /// <summary>One of today's orders. Side and fill time are what let an open position be dated.</summary>
-    public sealed record OrderSnapshot(string Symbol, string Status, string Side, DateTimeOffset? FilledAtUtc);
+    /// <summary>
+    /// One of today's orders. Side and fill time date an open position; the
+    /// outcome fields let the audit record what the broker finally did, as
+    /// rules/execution-rules.md requires.
+    /// </summary>
+    public sealed record OrderSnapshot(
+        string Symbol,
+        string Status,
+        string Side,
+        DateTimeOffset? FilledAtUtc,
+        string BrokerOrderId = "",
+        string ClientOrderId = "",
+        decimal? FilledQuantity = null,
+        decimal? FilledAveragePrice = null,
+        DateTimeOffset? CanceledAtUtc = null,
+        DateTimeOffset? FailedAtUtc = null,
+        DateTimeOffset? ExpiredAtUtc = null)
+    {
+        public bool IsTerminal => Status is "filled" or "canceled" or "expired" or "rejected" or "done_for_day" or "replaced";
+    }
 
     public async Task<Snapshot> GetAsync(CancellationToken cancellationToken)
     {
@@ -115,7 +133,14 @@ public sealed class AccountSnapshotProvider
                 ReadString(o, "symbol"),
                 ReadString(o, "status"),
                 ReadString(o, "side"),
-                ReadNullableTimestamp(o, "filled_at")))
+                ReadNullableTimestamp(o, "filled_at"),
+                ReadString(o, "id"),
+                ReadString(o, "client_order_id"),
+                ParseOptionalDecimal(o, "filled_qty"),
+                ParseOptionalDecimal(o, "filled_avg_price"),
+                ReadNullableTimestamp(o, "canceled_at"),
+                ReadNullableTimestamp(o, "failed_at"),
+                ReadNullableTimestamp(o, "expired_at")))
             .Where(o => o.Symbol.Length > 0)
             .ToList();
     }

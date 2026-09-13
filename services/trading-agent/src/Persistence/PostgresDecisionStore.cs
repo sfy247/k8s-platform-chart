@@ -68,18 +68,35 @@ public sealed class PostgresDecisionStore(
         -- for, so indexing only those keeps it small.
         CREATE INDEX IF NOT EXISTS trading_decision_approved_idx
             ON trading_decision (decided_at DESC) WHERE approved;
+
+        -- v3 day-trading fields. Nullable ADD COLUMN is a catalogue change in
+        -- PostgreSQL 11+: no table rewrite and no long lock, which is what
+        -- keeps it acceptable in a startup migration. Historic rows read NULL,
+        -- which is the truth: the fields did not exist when they were written.
+        ALTER TABLE trading_decision ADD COLUMN IF NOT EXISTS entry_type    text;
+        ALTER TABLE trading_decision ADD COLUMN IF NOT EXISTS invalidation  text;
+        ALTER TABLE trading_decision ADD COLUMN IF NOT EXISTS target        text;
+        ALTER TABLE trading_decision ADD COLUMN IF NOT EXISTS session_state text;
+        ALTER TABLE trading_decision ADD COLUMN IF NOT EXISTS filled_at     timestamptz;
+        ALTER TABLE trading_decision ADD COLUMN IF NOT EXISTS closed_at     timestamptz;
+
+        -- Outcome reconciliation looks rows up by broker order id.
+        CREATE INDEX IF NOT EXISTS trading_decision_broker_order_id_idx
+            ON trading_decision (broker_order_id) WHERE broker_order_id IS NOT NULL;
         """;
 
     private const string Insert = """
         INSERT INTO trading_decision (
             decided_at, symbol,
             strategy_name, action, proposed_notional, confidence, reasoning_summary, data_timestamp,
+            entry_type, invalidation, target, session_state,
             approved, decision_code, decision_reason, client_order_id,
             broker_order_id, broker_status, filled_quantity, filled_avg_price,
             trading_enabled, market_open, pod)
         VALUES (
             @DecidedAtUtc, @Symbol,
             @StrategyName, @Action, @ProposedNotional, @Confidence, @ReasoningSummary, @DataTimestampUtc,
+            @EntryType, @Invalidation, @Target, @SessionState,
             @Approved, @DecisionCode, @DecisionReason, @ClientOrderId,
             @BrokerOrderId, @BrokerStatus, @FilledQuantity, @FilledAveragePrice,
             @TradingEnabled, @MarketOpen, @Pod)
@@ -91,6 +108,22 @@ public sealed class PostgresDecisionStore(
             filled_quantity  = COALESCE(EXCLUDED.filled_quantity,  trading_decision.filled_quantity),
             filled_avg_price = COALESCE(EXCLUDED.filled_avg_price, trading_decision.filled_avg_price);
         """;
+
+    private const string UpdateOutcome = """
+        UPDATE trading_decision SET
+            broker_status    = @Status,
+            filled_quantity  = COALESCE(@FilledQuantity,     filled_quantity),
+            filled_avg_price = COALESCE(@FilledAveragePrice, filled_avg_price),
+            filled_at        = COALESCE(@FilledAtUtc,        filled_at),
+            closed_at        = COALESCE(@ClosedAtUtc,        closed_at)
+        WHERE broker_order_id = @BrokerOrderId;
+        """;
+
+    public async Task<int> RecordOrderOutcomeAsync(OrderOutcome outcome, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await connection.ExecuteAsync(new CommandDefinition(UpdateOutcome, outcome, cancellationToken: cancellationToken));
+    }
 
     public async Task InitialiseAsync(CancellationToken cancellationToken = default)
     {
@@ -132,6 +165,10 @@ public sealed class PostgresDecisionStore(
             record.Confidence,
             record.ReasoningSummary,
             record.DataTimestampUtc,
+            record.EntryType,
+            record.Invalidation,
+            record.Target,
+            record.SessionState,
             record.Approved,
             record.DecisionCode,
             record.DecisionReason,

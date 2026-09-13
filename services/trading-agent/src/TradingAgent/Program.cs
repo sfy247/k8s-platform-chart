@@ -53,7 +53,16 @@ if (configErrors.Count > 0)
     return 1;
 }
 
-var policies = TradingPolicySet.Load(options);
+TradingPolicySet policies;
+try
+{
+    policies = TradingPolicySet.Load(options);
+}
+catch (Exception ex) when (ex is InvalidOperationException or FileNotFoundException or System.Text.Json.JsonException)
+{
+    Console.Error.WriteLine($"CONFIG ERROR: {ex.Message}");
+    return 1;
+}
 
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton(policies);
@@ -139,9 +148,20 @@ app.MapGet("/", (AgentState state, AgentOptions o, TradingPolicySet p) => Result
     // the config that is baked into the image.
     session = new
     {
-        noEntryFirstMinutes = p.Session.NoEntryAfterOpen.TotalMinutes,
-        noEntryLastMinutes = p.Session.NoEntryBeforeClose.TotalMinutes,
-        flattenMinutesBeforeClose = p.Session.FlattenBeforeClose.TotalMinutes,
+        // New York clock times on a regular day; on an early close each
+        // boundary keeps its distance from the real close.
+        entryStartEt = p.Session.EntryStartEt.ToString("HH:mm"),
+        entryCutoffEt = p.Session.EntryCutoffEt.ToString("HH:mm"),
+        flattenEt = p.Session.FlattenEt.ToString("HH:mm"),
+    },
+    capital = new
+    {
+        strategyCapital = p.Risk.StrategyCapital,
+        maxNotionalPerTrade = p.Risk.MaxNotionalPerTrade,
+        maxConcurrentPositions = p.Risk.MaxConcurrentPositions,
+        maxTotalExposure = p.Risk.MaxTotalExposure,
+        maxDailyLoss = p.Risk.MaxDailyLoss,
+        maxEstimatedLossPerTrade = p.Risk.MaxEstimatedLossPerTrade,
     },
     exits = new
     {
