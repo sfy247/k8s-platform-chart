@@ -78,10 +78,11 @@
 
   {% if last_error %}<div class="err"><strong>Discovery failing:</strong> {{ last_error }}</div>{% endif %}
 
-  <h2>Applications</h2>
-  {% if apps %}
+  {% if app_groups %}
+  {% for title, members in app_groups %}
+  <h2>{{ title }}</h2>
   <div class="grid">
-    {% for a in apps %}
+    {% for a in members %}
     {# A worker has no URL, so its tile is not a link — but it still shows health. #}
     {% if a.internal %}<div class="card internal {{ a.status }}">{% else %}<a class="card {{ a.status }}" href="{{ a.url }}" target="_blank" rel="noopener">{% endif %}
       <div class="row">
@@ -100,7 +101,9 @@
     {% if a.internal %}</div>{% else %}</a>{% endif %}
     {% endfor %}
   </div>
+  {% endfor %}
   {% else %}
+  <h2>Applications</h2>
   <div class="empty">No applications discovered yet. Anything with an Ingress appears here automatically.</div>
   {% endif %}
 

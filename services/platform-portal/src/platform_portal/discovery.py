@@ -16,6 +16,15 @@ ANN_HIDE = "portal.sfy247.io/hide"
 ANN_HEALTH_PATH = "portal.sfy247.io/health-path"
 ANN_DESCRIPTION = "portal.sfy247.io/description"
 ANN_ICON = "portal.sfy247.io/icon"
+# Display name shown on the tile (defaults to the Ingress/Service name, which
+# is DNS-1123 and often cryptic). Lets an app read "DevOps Learning Platform".
+ANN_NAME = "portal.sfy247.io/name"
+# Section heading the tile is grouped under. Ungrouped apps stay under the
+# default "Applications" heading.
+ANN_GROUP = "portal.sfy247.io/group"
+
+# Default heading for non-platform apps that declare no group.
+DEFAULT_GROUP = "Applications"
 
 
 @dataclass(slots=True)
@@ -31,6 +40,7 @@ class App:
     health_path: str
     description: str = ""
     icon: str = ""
+    group: str = ""
     is_platform: bool = False
     internal: bool = False
     # filled in by the health checker
@@ -114,7 +124,7 @@ def apps_from_ingresses(
 
         apps.append(
             App(
-                name=meta.get("name", service_name),
+                name=annotations.get(ANN_NAME) or meta.get("name", service_name),
                 namespace=namespace,
                 url=f"{scheme}://{host}{url_suffix}",
                 host=host,
@@ -123,6 +133,7 @@ def apps_from_ingresses(
                 health_path=annotations.get(ANN_HEALTH_PATH, default_health_path),
                 description=annotations.get(ANN_DESCRIPTION, ""),
                 icon=annotations.get(ANN_ICON, ""),
+                group=annotations.get(ANN_GROUP, ""),
                 is_platform=namespace in platform_namespaces,
                 labels=meta.get("labels", {}) or {},
             )
@@ -187,7 +198,7 @@ def apps_from_services(
 
         apps.append(
             App(
-                name=labels.get("app.kubernetes.io/instance", name),
+                name=annotations.get(ANN_NAME) or labels.get("app.kubernetes.io/instance", name),
                 namespace=namespace,
                 url="",                      # nothing to link to
                 host=f"{name}.{namespace}.svc.cluster.local",
@@ -196,6 +207,7 @@ def apps_from_services(
                 health_path=annotations.get(ANN_HEALTH_PATH, default_health_path),
                 description=annotations.get(ANN_DESCRIPTION, ""),
                 icon=annotations.get(ANN_ICON, ""),
+                group=annotations.get(ANN_GROUP, ""),
                 is_platform=namespace in platform_namespaces,
                 internal=True,
                 labels=labels,
@@ -203,3 +215,21 @@ def apps_from_services(
         )
 
     return apps
+
+
+def group_apps(apps: list[App]) -> list[tuple[str, list[App]]]:
+    """Split non-platform apps into sections by their group annotation.
+
+    Ungrouped apps go under the default "Applications" heading, kept first so
+    the existing view is unchanged; explicitly named groups follow in
+    alphabetical order. Order within a group is the order given.
+    """
+    buckets: dict[str, list[App]] = {}
+    for app in apps:
+        buckets.setdefault(app.group or DEFAULT_GROUP, []).append(app)
+
+    ordered: list[tuple[str, list[App]]] = []
+    if DEFAULT_GROUP in buckets:
+        ordered.append((DEFAULT_GROUP, buckets.pop(DEFAULT_GROUP)))
+    ordered.extend((title, buckets[title]) for title in sorted(buckets))
+    return ordered

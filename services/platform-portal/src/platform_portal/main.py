@@ -32,7 +32,11 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_late
 from platform_portal import __version__
 from platform_portal.config import Settings
 from platform_portal.discovery import (
-    App, apps_from_ingresses, apps_from_services, service_port_index,
+    App,
+    apps_from_ingresses,
+    apps_from_services,
+    group_apps,
+    service_port_index,
     services_claimed_by_ingresses,
 )
 from platform_portal.health import probe_all
@@ -178,7 +182,7 @@ async def index(request: Request) -> Response:
         "index.html",
         {
             "title": settings.title,
-            "apps": [a for a in state.apps if not a.is_platform],
+            "app_groups": group_apps([a for a in state.apps if not a.is_platform]),
             "platform": [a for a in state.apps if a.is_platform],
             "last_refresh": state.last_refresh,
             "last_error": state.last_error,
@@ -199,6 +203,7 @@ async def api_apps() -> JSONResponse:
                     "name": a.name,
                     "namespace": a.namespace,
                     "url": a.url,
+                    "group": a.group,
                     "status": a.status,
                     "status_code": a.status_code,
                     "latency_ms": a.latency_ms,

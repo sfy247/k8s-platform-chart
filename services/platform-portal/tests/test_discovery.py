@@ -187,3 +187,30 @@ def test_an_app_that_hides_itself_does_not_reappear_via_its_service() -> None:
     # ...and must not come back through the Service path either.
     claimed = services_claimed_by_ingresses([hidden])
     assert build_internal([svc("platform-portal", "demo")], seen=claimed) == []
+
+
+def test_name_annotation_overrides_the_tile_name() -> None:
+    apps = build([ingress("backstage", "learning-platform", "b.example.com", "backstage",
+                          annotations={"portal.sfy247.io/name": "DevOps Learning Platform"})])
+    assert apps[0].name == "DevOps Learning Platform"
+
+
+def test_group_annotation_is_captured() -> None:
+    apps = build([ingress("api", "demo", "api.example.com", "api",
+                          annotations={"portal.sfy247.io/group": "DevOps Learning Platform"})])
+    assert apps[0].group == "DevOps Learning Platform"
+
+
+def test_group_apps_puts_default_first_then_named_alphabetically() -> None:
+    from platform_portal.discovery import group_apps
+
+    apps = build([
+        ingress("api", "demo", "api.example.com", "api"),
+        ingress("portal", "learning-platform", "p.example.com", "portal",
+                annotations={"portal.sfy247.io/group": "Learning"}),
+        ingress("sso", "learning-platform", "s.example.com", "sso",
+                annotations={"portal.sfy247.io/group": "Learning"}),
+    ])
+    groups = group_apps(apps)
+    assert [title for title, _ in groups] == ["Applications", "Learning"]
+    assert [a.name for a in dict(groups)["Learning"]] == ["portal", "sso"]
