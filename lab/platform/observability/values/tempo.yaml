@@ -1,0 +1,57 @@
+# Grafana Tempo — trace storage, and the metrics generator that turns spans
+# into the service-graph metrics Grafana draws the service map from.
+#
+# Single binary mode: one pod, local disk. Right for a lab; a real
+# deployment splits distributor/ingester/querier and stores blocks in S3.
+#
+# Traces arrive over OTLP from Alloy, which produces them with eBPF
+# (see values/alloy.yaml). No application sends traces directly today, but
+# the OTLP receiver is open for apps that add an SDK later.
+
+tempo:
+  retention: 48h
+
+  # Only OTLP. The chart's defaults also open Jaeger, Zipkin and OpenCensus
+  # listeners; nothing here speaks them.
+  receivers:
+    jaeger: null
+    zipkin: null
+    opencensus: null
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+  # The service map is metrics, not traces: the generator counts requests and
+  # latency per caller→callee pair and remote-writes them to Prometheus as
+  # traces_service_graph_*. Grafana's Tempo datasource then queries those.
+  metricsGenerator:
+    enabled: true
+    remoteWriteUrl: "http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090/api/v1/write"
+
+  # Generators only run for tenants that ask for them. One tenant here.
+  overrides:
+    defaults:
+      metrics_generator:
+        processors:
+          - service-graphs
+          - span-metrics
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+# Traces on disk. Small: 48h of a lab's traffic is megabytes, and losing
+# them costs nothing that Prometheus and Loki do not already hold.
+persistence:
+  enabled: true
+  size: 5Gi
+
+# Tempo's own metrics, scraped like every other platform component.
+serviceMonitor:
+  enabled: true
