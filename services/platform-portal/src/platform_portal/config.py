@@ -34,9 +34,12 @@ class Settings:
     title: str
     # Empty means "every namespace the ServiceAccount can read".
     namespaces: list[str] = field(default_factory=list)
-    # Appended to discovered hostnames. The local lab publishes on :8090;
-    # on EKS behind a real load balancer this is empty.
+    # Appended to discovered hostnames. The local lab publishes HTTP on
+    # :8090; on EKS behind a real load balancer this is empty.
     url_suffix: str = ""
+    # The same for HTTPS hosts, because the lab's load balancer publishes TLS
+    # on a different port (:8543). Empty means "use url_suffix".
+    url_suffix_https: str = ""
     # Namespaces holding platform components rather than user apps. They are
     # shown in a separate section.
     platform_namespaces: list[str] = field(default_factory=list)
@@ -65,6 +68,7 @@ class Settings:
             title=os.environ.get("PORTAL_TITLE", "Platform Portal"),
             namespaces=_csv("WATCH_NAMESPACES"),
             url_suffix=os.environ.get("URL_SUFFIX", ""),
+            url_suffix_https=os.environ.get("URL_SUFFIX_HTTPS", ""),
             platform_namespaces=platform,
             refresh_seconds=_int("REFRESH_SECONDS", 30),
             probe_timeout_seconds=float(os.environ.get("PROBE_TIMEOUT_SECONDS", "3.0")),

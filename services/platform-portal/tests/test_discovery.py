@@ -22,10 +22,11 @@ def ingress(name, ns, host, svc, port=80, tls=False, annotations=None):
     return obj
 
 
-def build(items, url_suffix=":8090"):
+def build(items, url_suffix=":8090", url_suffix_https=""):
     return apps_from_ingresses(
         items,
         url_suffix=url_suffix,
+        url_suffix_https=url_suffix_https,
         default_health_path="/healthz",
         platform_namespaces=PLATFORM_NS,
     )
@@ -40,6 +41,26 @@ def test_builds_a_url_from_the_ingress_host() -> None:
 def test_tls_ingress_becomes_https() -> None:
     apps = build([ingress("api", "demo", "api.example.com", "api", tls=True)])
     assert apps[0].url.startswith("https://")
+
+
+def test_https_links_use_the_tls_port() -> None:
+    # The lab publishes HTTP on 8090 and HTTPS on 8543; a link that keeps the
+    # HTTP port while switching to https reaches nothing.
+    items = [
+        ingress("api", "demo", "api.example.com", "api"),
+        ingress("vault", "demo", "vault.example.com", "vault", tls=True),
+    ]
+
+    apps = {a.name: a.url for a in build(items, url_suffix=":8090", url_suffix_https=":8543")}
+
+    assert apps["api"] == "http://api.example.com:8090"
+    assert apps["vault"] == "https://vault.example.com:8543"
+
+
+def test_https_falls_back_to_the_http_suffix_when_unset() -> None:
+    apps = build([ingress("vault", "demo", "vault.example.com", "vault", tls=True)], url_suffix=":8443")
+
+    assert apps[0].url == "https://vault.example.com:8443"
 
 
 def test_no_url_suffix_for_a_real_load_balancer() -> None:

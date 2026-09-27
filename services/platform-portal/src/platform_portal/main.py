@@ -101,6 +101,7 @@ async def refresh(client: KubeClient) -> None:
     apps = apps_from_ingresses(
         ingresses,
         url_suffix=settings.url_suffix,
+        url_suffix_https=settings.url_suffix_https,
         default_health_path=settings.default_health_path,
         platform_namespaces=settings.platform_namespaces,
         port_index=service_port_index(services),
