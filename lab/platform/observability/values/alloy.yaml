@@ -124,9 +124,13 @@ alloy:
               namespace = "kube-system"
             }
           }
+          // The observability stack talks to itself constantly — Prometheus
+          // scrapes every pod in the cluster every 30s — and those spans
+          // drown the map in edges nobody asked about while costing Tempo
+          // the memory it needs for real traffic.
           exclude_instrument {
             kubernetes {
-              pod_name = "alloy-*"
+              namespace = "observability"
             }
           }
         }

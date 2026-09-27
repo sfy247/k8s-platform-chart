@@ -30,19 +30,28 @@ tempo:
     remoteWriteUrl: "http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090/api/v1/write"
 
   # Generators only run for tenants that ask for them. One tenant here.
+  #
+  # service-graphs only. span-metrics adds a histogram per service, operation
+  # and status — thousands of series that nothing in the lab queries, and the
+  # memory they cost is what OOM-killed this pod the first time round.
   overrides:
     defaults:
       metrics_generator:
         processors:
           - service-graphs
-          - span-metrics
+        # A runaway cardinality source (a service that puts IDs in span names)
+        # gets dropped here instead of taking Tempo down with it.
+        max_active_series: 20000
 
+  # Measured, not guessed: 1Gi was not enough once the generator had been
+  # running for an hour, and the pod was OOM-killed. Tempo holds recent
+  # traces plus the generator's series in memory.
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      cpu: 200m
+      memory: 512Mi
     limits:
-      memory: 1Gi
+      memory: 3Gi
 
 # Traces on disk. Small: 48h of a lab's traffic is megabytes, and losing
 # them costs nothing that Prometheus and Loki do not already hold.
