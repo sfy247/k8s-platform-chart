@@ -25,6 +25,11 @@ prometheus:
     probeSelectorNilUsesHelmValues: false
     scrapeConfigSelectorNilUsesHelmValues: false
 
+    # Tempo's metrics generator pushes service-graph metrics here rather than
+    # being scraped: the numbers are derived from spans as they arrive, so
+    # there is nothing to poll.
+    enableRemoteWriteReceiver: true
+
     resources:
       requests:
         cpu: 200m
@@ -75,6 +80,30 @@ grafana:
       url: http://loki.observability.svc.cluster.local:3100
       jsonData:
         maxLines: 1000
+
+    - name: Tempo
+      type: tempo
+      uid: tempo
+      access: proxy
+      url: http://tempo.observability.svc.cluster.local:3200
+      jsonData:
+        # The service map: Grafana reads traces_service_graph_* from
+        # Prometheus and draws the node graph from them.
+        serviceMap:
+          datasourceUid: prometheus
+        nodeGraph:
+          enabled: true
+        # A span in a trace links straight to that pod's logs.
+        tracesToLogsV2:
+          datasourceUid: loki
+          spanStartTimeShift: -2m
+          spanEndTimeShift: 2m
+          filterByTraceID: false
+          tags:
+            - key: k8s.namespace.name
+              value: namespace
+            - key: k8s.pod.name
+              value: pod
 
   resources:
     requests:

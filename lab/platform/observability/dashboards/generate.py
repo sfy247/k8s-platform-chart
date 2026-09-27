@@ -716,6 +716,83 @@ def trading_agent() -> dict:
         ])
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# 6. Service Map — who calls whom, how often, and how badly
+# ══════════════════════════════════════════════════════════════════════════
+TEMPO = "${ds_tempo}"
+
+
+def node_graph(title, x, y, w=24, h=13, desc=""):
+    """Grafana draws this from Tempo's service-graph metrics in Prometheus."""
+    return {
+        "type": "nodeGraph", "title": title, "description": desc,
+        "gridPos": {"h": h, "w": w, "x": x, "y": y},
+        "datasource": {"type": "tempo", "uid": TEMPO},
+        "targets": [{"datasource": {"type": "tempo", "uid": TEMPO},
+                     "queryType": "serviceMap", "refId": "A"}],
+        "options": {"nodes": {"mainStatUnit": "req/s", "secondaryStatUnit": "ms"}},
+    }
+
+
+def service_map() -> dict:
+    p = []
+
+    p.append(row("Map", 0))
+    p.append(node_graph(
+        "Service map", 0, 1,
+        desc="Every edge is real traffic seen by eBPF: request rate on the node, "
+             "error rate in red. Click a node for its traces."))
+
+    p.append(row("Traffic between services", 14))
+    edges = [
+        tgt("sum by (client, server) (rate(traces_service_graph_request_total[$__rate_interval]))",
+            "", "A", instant=True),
+        tgt("sum by (client, server) (rate(traces_service_graph_request_failed_total[$__rate_interval]))",
+            "", "B", instant=True),
+        tgt("histogram_quantile(0.95, sum by (client, server, le) "
+            "(rate(traces_service_graph_request_server_seconds_bucket[$__rate_interval])))",
+            "", "C", instant=True),
+    ]
+    p.append(table(
+        "Caller → callee", edges, 0, 15, h=9,
+        desc="One row per pair of services that actually talked. Empty means no traffic in the window.",
+        transforms=[
+            {"id": "merge", "options": {}},
+            {"id": "organize", "options": {"renameByName": {
+                "client": "Caller", "server": "Callee",
+                "Value #A": "req/s", "Value #B": "errors/s", "Value #C": "p95 (s)"}}},
+        ]))
+
+    p.append(row("Per service", 24))
+    p.append(ts("Requests per second", [
+        tgt("sum by (server) (rate(traces_service_graph_request_total[$__rate_interval]))", "{{server}}")],
+        "reqps", 0, 25, desc="Inbound request rate per service, from spans rather than app metrics."))
+    p.append(ts("Failed requests per second", [
+        tgt("sum by (server) (rate(traces_service_graph_request_failed_total[$__rate_interval]))", "{{server}}")],
+        "reqps", 12, 25, desc="A flat zero here is the normal, healthy picture."))
+    p.append(ts("p95 latency, server side", [
+        tgt("histogram_quantile(0.95, sum by (server, le) "
+            "(rate(traces_service_graph_request_server_seconds_bucket[$__rate_interval])))", "{{server}}")],
+        "s", 0, 33, desc="Time the callee took, measured at the kernel — no app instrumentation involved."))
+    p.append(ts("p95 latency, client side", [
+        tgt("histogram_quantile(0.95, sum by (client, le) "
+            "(rate(traces_service_graph_request_client_seconds_bucket[$__rate_interval])))", "{{client}}")],
+        "s", 12, 33, desc="What the caller waited. Client far above server means the network or a queue."))
+
+    return dashboard(
+        "lab-service-map", "Service Map",
+        "Who calls whom in the cluster. Built from eBPF spans (Alloy/Beyla) → Tempo → "
+        "service-graph metrics, so apps appear without being instrumented.",
+        ["lab", "platform", "traces"], p,
+        templating=[
+            {"name": "ds_prom", "label": "Metrics source", "type": "datasource",
+             "query": "prometheus", "current": {}, "hide": 0, "refresh": 1},
+            {"name": "ds_tempo", "label": "Traces source", "type": "datasource",
+             "query": "tempo", "current": {}, "hide": 0, "refresh": 1},
+        ])
+
+
+
 if __name__ == "__main__":
     print("generating dashboards:")
     write(cluster_overview(), "cluster-overview.json")
@@ -723,3 +800,4 @@ if __name__ == "__main__":
     write(platform_health(), "platform-health.json")
     write(postgres(), "postgres.json")
     write(trading_agent(), "trading-agent.json")
+    write(service_map(), "service-map.json")

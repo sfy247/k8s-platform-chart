@@ -1,19 +1,40 @@
-# Grafana Alloy — the log collector (successor to Promtail, which is EOL).
-# Runs as a DaemonSet so every node's pods are covered automatically.
+# Grafana Alloy — logs AND traces.
 #
-# THIS is what makes logging free for new apps: it discovers pods through the
-# Kubernetes API and ships whatever they write to stdout. No per-app config,
-# no sidecar, no code change. An app just has to log to stdout.
+# Logs: discovers pods through the Kubernetes API and ships whatever they
+# write to stdout. No per-app config, no sidecar, no code change.
+#
+# Traces: Beyla watches HTTP and gRPC calls with eBPF and turns them into
+# spans, so every app in the cluster appears on Grafana's service map
+# without being instrumented — including ones we do not build (Vaultwarden,
+# podinfo, Grafana itself). Spans go to Tempo, whose metrics generator
+# produces the service-graph metrics the map is drawn from.
+#
+# The cost of eBPF: this DaemonSet now runs privileged, in the host PID
+# namespace, as root. That is a real trade — kernel-level visibility for
+# every app, in exchange for a collector that could read any process's
+# memory. Acceptable in a single-user lab; in a shared cluster this would
+# need the capability list narrowed and a second look.
 controller:
   type: daemonset
+  # Beyla resolves the processes behind sockets, which needs the host's
+  # process table.
+  hostPID: true
 
 alloy:
+  # eBPF needs kernel access that an unprivileged container does not have.
+  # k3d nodes are themselves containers, so the capability-only setup Beyla
+  # documents is not enough here.
+  securityContext:
+    privileged: true
+    runAsUser: 0
+    readOnlyRootFilesystem: false
+
   resources:
     requests:
-      cpu: 50m
-      memory: 128Mi
+      cpu: 100m
+      memory: 256Mi
     limits:
-      memory: 512Mi
+      memory: 1Gi
 
   configMap:
     content: |-
@@ -78,5 +99,65 @@ alloy:
       loki.write "default" {
         endpoint {
           url = "http://loki.observability.svc.cluster.local:3100/loki/api/v1/push"
+        }
+      }
+
+      // ── Traces: eBPF in, Tempo out ────────────────────────────
+      // Beyla instruments every pod it can see. Excluded: kube-system (not
+      // an application) and Alloy itself (it would trace its own exports).
+      beyla.ebpf "lab" {
+        attributes {
+          kubernetes {
+            enable       = "true"
+            cluster_name = "lab"
+          }
+        }
+
+        discovery {
+          instrument {
+            kubernetes {
+              namespace = "*"
+            }
+          }
+          exclude_instrument {
+            kubernetes {
+              namespace = "kube-system"
+            }
+          }
+          exclude_instrument {
+            kubernetes {
+              pod_name = "alloy-*"
+            }
+          }
+        }
+
+        output {
+          traces = [otelcol.processor.batch.default.input]
+        }
+      }
+
+      // Also open OTLP, so an app that adds an SDK later lands in the same
+      // pipeline instead of needing new plumbing.
+      otelcol.receiver.otlp "default" {
+        grpc { endpoint = "0.0.0.0:4317" }
+        http { endpoint = "0.0.0.0:4318" }
+
+        output {
+          traces = [otelcol.processor.batch.default.input]
+        }
+      }
+
+      otelcol.processor.batch "default" {
+        output {
+          traces = [otelcol.exporter.otlp.tempo.input]
+        }
+      }
+
+      otelcol.exporter.otlp "tempo" {
+        client {
+          endpoint = "tempo.observability.svc.cluster.local:4317"
+          tls {
+            insecure = true
+          }
         }
       }

@@ -1,0 +1,8 @@
+# Platform component — read by the lab-platform ApplicationSet.
+# Keep it flat: Argo CD's git generator parses it directly.
+name: tempo
+namespace: observability
+chartRepo: https://grafana.github.io/helm-charts
+chart: tempo
+version: "1.24.4"
+values: lab/platform/observability/values/tempo.yaml
