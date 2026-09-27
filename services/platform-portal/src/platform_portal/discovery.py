@@ -77,7 +77,12 @@ def apps_from_ingresses(
     default_health_path: str,
     platform_namespaces: list[str],
     port_index: dict[tuple[str, str, str], int] | None = None,
+    url_suffix_https: str = "",
 ) -> list[App]:
+    # HTTP and HTTPS reach the lab on different host ports, so the port has to
+    # follow the scheme. Unset means the two are the same, which is the case
+    # behind a real load balancer.
+    https_suffix = url_suffix_https or url_suffix
     apps: list[App] = []
     for ingress in ingresses:
         meta = ingress.get("metadata", {})
@@ -110,13 +115,15 @@ def apps_from_ingresses(
             service_port = 80
 
         host = rule["host"]
-        scheme = "https" if ingress.get("spec", {}).get("tls") else "http"
+        secure = bool(ingress.get("spec", {}).get("tls"))
+        scheme = "https" if secure else "http"
+        suffix = https_suffix if secure else url_suffix
 
         apps.append(
             App(
                 name=meta.get("name", service_name),
                 namespace=namespace,
-                url=f"{scheme}://{host}{url_suffix}",
+                url=f"{scheme}://{host}{suffix}",
                 host=host,
                 service=service_name,
                 service_port=service_port,

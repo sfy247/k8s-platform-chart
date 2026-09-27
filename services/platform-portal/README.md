@@ -24,7 +24,8 @@ Ingress and it appears on the next refresh.
 | `PORTAL_TITLE` | `Platform Portal` | heading |
 | `WATCH_NAMESPACES` | *(all)* | comma-separated; empty means every namespace RBAC allows |
 | `PLATFORM_NAMESPACES` | `argocd,observability,ingress-nginx,kube-system` | shown in a separate section |
-| `URL_SUFFIX` | *(empty)* | appended to hostnames. `:8090` for the k3d lab, empty on EKS |
+| `URL_SUFFIX` | *(empty)* | appended to HTTP hostnames. `:8090` for the k3d lab, empty on EKS |
+| `URL_SUFFIX_HTTPS` | *(empty → `URL_SUFFIX`)* | appended to HTTPS hostnames. `:8543` for the k3d lab, empty on EKS |
 | `REFRESH_SECONDS` | `30` | discovery + probe interval |
 | `PROBE_TIMEOUT_SECONDS` | `3.0` | per-app health probe timeout |
 | `DEFAULT_HEALTH_PATH` | `/healthz` | override per app with an annotation |
@@ -83,6 +84,7 @@ The image is cluster-agnostic. What changes is values, not code:
 |---|---|---|
 | Image | `k3d image import` | push to ECR |
 | `URL_SUFFIX` | `:8090` | empty |
+| `URL_SUFFIX_HTTPS` | `:8543` | empty |
 | `ingress.className` | `nginx` | `alb` or your controller |
 | `ingress.tls` | false | true, via cert-manager or ACM |
 | Architecture | amd64 | amd64 or arm64 for Graviton |

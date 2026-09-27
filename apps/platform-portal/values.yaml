@@ -6,7 +6,7 @@ fullnameOverride: platform-portal
 
 image:
   repository: platform-portal
-  tag: "0.2.1"
+  tag: "0.3.0"
 
 service:
   port: 80
@@ -31,9 +31,11 @@ ingress:
 
 env:
   PORTAL_TITLE: "sfy247 Platform"
-  # The k3d load balancer publishes on 8090; on EKS behind a real load
-  # balancer this is empty and links are plain https://host.
+  # The k3d load balancer publishes HTTP on 8090 and HTTPS on 8543, so the
+  # port in a link has to follow the scheme. On EKS behind a real load
+  # balancer both are empty and links are plain https://host.
   URL_SUFFIX: ":8090"
+  URL_SUFFIX_HTTPS: ":8543"
   REFRESH_SECONDS: "30"
   LOG_LEVEL: "INFO"
 
