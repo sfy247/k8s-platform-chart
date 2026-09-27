@@ -11,12 +11,10 @@
 tempo:
   retention: 48h
 
-  # Only OTLP. The chart's defaults also open Jaeger, Zipkin and OpenCensus
-  # listeners; nothing here speaks them.
+  # OTLP is what Alloy speaks. The chart's default Jaeger and OpenCensus
+  # listeners stay: its service template dereferences those values
+  # unconditionally, so nulling them crashes the render.
   receivers:
-    jaeger: null
-    zipkin: null
-    opencensus: null
     otlp:
       protocols:
         grpc:
