@@ -151,21 +151,20 @@ alloy:
         }
       }
 
-      // Kubernetes probes every pod and Prometheus scrapes every target, and
-      // neither caller is instrumented, so eBPF attributes both to the
-      // pseudo-service "user". Left in, they were 17 of 22 edges on the
-      // service map — a hairball of health checks hiding four real calls.
-      // Dropped here rather than filtered in the dashboard: they are not
-      // traffic anyone wants stored, queried or drawn.
+      // Prometheus scrapes every target every 30 seconds and nginx polls its
+      // own status: collector chatter, never worth a stored span.
+      //
+      // Health checks are deliberately NOT dropped. The platform portal's
+      // entire job is probing other apps, so those spans are its real
+      // traffic — filtering them here deleted the portal from the map. What
+      // makes the map unreadable is not health checks but the caller eBPF
+      // cannot name ("user"), which is how kubelet probes and scrapes
+      // arrive; the dashboard excludes that pseudo-service instead.
       otelcol.processor.filter "noise" {
         error_mode = "ignore"
 
-        // Health endpoints are not flat: /health/live, /_floci/health and
-        // /health/ready all turned up in the lab. Match the health segment
-        // anywhere in the path, with an optional live/ready/startup suffix.
         traces {
           span = [
-            "IsMatch(attributes[\"url.path\"], \"(?i)^(/.*)?/(health|healthz|healthcheck|livez|readyz|alive|ping)(/(live|ready|startup))?/?$\")",
             "IsMatch(attributes[\"url.path\"], \"^/(metrics|nginx_status|is-dynamic-lb-initialized)/?$\")",
             "IsMatch(attributes[\"url.path\"], \"^/-/(healthy|ready)$\")",
             "name == \"ping\"",
