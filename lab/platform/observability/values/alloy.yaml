@@ -136,7 +136,7 @@ alloy:
         }
 
         output {
-          traces = [otelcol.processor.batch.default.input]
+          traces = [otelcol.processor.filter.noise.input]
         }
       }
 
@@ -145,6 +145,28 @@ alloy:
       otelcol.receiver.otlp "default" {
         grpc { endpoint = "0.0.0.0:4317" }
         http { endpoint = "0.0.0.0:4318" }
+
+        output {
+          traces = [otelcol.processor.filter.noise.input]
+        }
+      }
+
+      // Kubernetes probes every pod and Prometheus scrapes every target, and
+      // neither caller is instrumented, so eBPF attributes both to the
+      // pseudo-service "user". Left in, they were 17 of 22 edges on the
+      // service map — a hairball of health checks hiding four real calls.
+      // Dropped here rather than filtered in the dashboard: they are not
+      // traffic anyone wants stored, queried or drawn.
+      otelcol.processor.filter "noise" {
+        error_mode = "ignore"
+
+        traces {
+          span = [
+            "IsMatch(attributes[\"url.path\"], \"^/(healthz|readyz|livez|alive|health|ready|metrics)$\")",
+            "IsMatch(attributes[\"url.path\"], \"^/-/(healthy|ready)$\")",
+            "name == \"ping\"",
+          ]
+        }
 
         output {
           traces = [otelcol.processor.batch.default.input]
