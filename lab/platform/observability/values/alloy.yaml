@@ -124,15 +124,11 @@ alloy:
               namespace = "kube-system"
             }
           }
-          // The observability stack talks to itself constantly — Prometheus
-          // scrapes every pod in the cluster every 30s — and those spans
-          // drown the map in edges nobody asked about while costing Tempo
-          // the memory it needs for real traffic.
-          exclude_instrument {
-            kubernetes {
-              namespace = "observability"
-            }
-          }
+          // The observability stack was excluded while Prometheus scrapes
+          // still became spans. Those are dropped in the filter below now,
+          // so Grafana, Loki, Tempo and Prometheus can appear on the map
+          // like any other app — their queries to each other are real
+          // traffic worth seeing.
         }
 
         output {
