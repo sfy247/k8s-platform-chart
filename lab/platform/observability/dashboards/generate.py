@@ -750,10 +750,17 @@ def _named(expr: str, label: str) -> str:
             f', "title", "$1", "{label}", "(.*)")')
 
 
+# Nodes are every service with traffic, not only those with an edge. An app
+# whose callers are all browsers or kubelet probes has no service-to-service
+# edge to draw, and listing only edge endpoints made it disappear from the
+# map entirely. It belongs there, as a labelled circle with its request rate.
+ANY_INBOUND = 'sum by (server) (rate(traces_service_graph_request_total[$__range]) > 0)'
+CALLERS = f'sum by (client) (rate({REAL}[$__range]) > 0)'
+
 NODES = ('sum by (id, title) ('
-         f'{_named(PAIRS, "server")}'
+         f'{_named(ANY_INBOUND, "server")}'
          ' or '
-         f'{_named(PAIRS, "client")}'
+         f'{_named(CALLERS, "client")}'
          ')')
 
 
@@ -792,9 +799,10 @@ def service_map() -> dict:
 
     p.append(row("Map", 0))
     p.append(node_graph(
-        "Service map — who calls whom", 0, 1,
-        desc="Real service-to-service traffic seen by eBPF. Probes, scrapes and "
-             "self-calls are excluded; inbound traffic from outside the cluster is in the next panel."))
+        "Service map — every app, and who calls whom", 0, 1,
+        desc="Every service with traffic appears, labelled, sized by request rate. Lines are "
+             "service-to-service calls; an app with no line is reached only from outside the cluster "
+             "or by probes. Click a circle for that app's flow, dependencies and traces."))
 
     p.append(row("Traffic", 15))
     edges = [

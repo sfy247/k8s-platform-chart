@@ -44,8 +44,8 @@
     },
     {
       "type": "nodeGraph",
-      "title": "Service map \u2014 who calls whom",
-      "description": "Real service-to-service traffic seen by eBPF. Probes, scrapes and self-calls are excluded; inbound traffic from outside the cluster is in the next panel.",
+      "title": "Service map \u2014 every app, and who calls whom",
+      "description": "Every service with traffic appears, labelled, sized by request rate. Lines are service-to-service calls; an app with no line is reached only from outside the cluster or by probes. Click a circle for that app's flow, dependencies and traces.",
       "gridPos": {
         "h": 14,
         "w": 24,
@@ -63,7 +63,7 @@
             "uid": "${ds_prom}"
           },
           "editorMode": "code",
-          "expr": "sum by (id, title) (label_replace(label_replace(sum by (client, server) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range]) > 0) unless on (client, server) label_replace(sum by (client) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range])), \"server\", \"$1\", \"client\", \"(.*)\"), \"id\", \"$1\", \"server\", \"(.*)\"), \"title\", \"$1\", \"server\", \"(.*)\") or label_replace(label_replace(sum by (client, server) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range]) > 0) unless on (client, server) label_replace(sum by (client) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range])), \"server\", \"$1\", \"client\", \"(.*)\"), \"id\", \"$1\", \"client\", \"(.*)\"), \"title\", \"$1\", \"client\", \"(.*)\"))",
+          "expr": "sum by (id, title) (label_replace(label_replace(sum by (server) (rate(traces_service_graph_request_total[$__range]) > 0), \"id\", \"$1\", \"server\", \"(.*)\"), \"title\", \"$1\", \"server\", \"(.*)\") or label_replace(label_replace(sum by (client) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range]) > 0), \"id\", \"$1\", \"client\", \"(.*)\"), \"title\", \"$1\", \"client\", \"(.*)\"))",
           "legendFormat": "",
           "range": false,
           "instant": true,
