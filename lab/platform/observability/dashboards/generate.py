@@ -742,10 +742,18 @@ EDGES = ('label_join(label_replace(label_replace('
          ', "source", "$1", "client", "(.*)"), "target", "$1", "server", "(.*)")'
          ', "id", " → ", "source", "target")')
 
-NODES = ('sum by (id) ('
-         f'label_replace({PAIRS}, "id", "$1", "server", "(.*)")'
+# The circle shows whatever is in `title`; without it a node is unlabelled
+# and you have to click to find out what it is. id and title are the same
+# service name — id wires the edges up, title is what you read.
+def _named(expr: str, label: str) -> str:
+    return (f'label_replace(label_replace({expr}, "id", "$1", "{label}", "(.*)")'
+            f', "title", "$1", "{label}", "(.*)")')
+
+
+NODES = ('sum by (id, title) ('
+         f'{_named(PAIRS, "server")}'
          ' or '
-         f'label_replace({PAIRS}, "id", "$1", "client", "(.*)")'
+         f'{_named(PAIRS, "client")}'
          ')')
 
 
@@ -886,13 +894,13 @@ def service_detail() -> dict:
         "gridPos": {"h": 12, "w": 24, "x": 0, "y": 6},
         "datasource": {"type": "prometheus", "uid": PROM},
         "targets": [
-            table_tgt('sum by (id) ('
-                      'label_replace(sum by (server) (rate(traces_service_graph_request_total{client="$service", server!="$service"}[$__range]) > 0), "id", "$1", "server", "(.*)")'
-                      ' or '
-                      'label_replace(sum by (client) (rate(traces_service_graph_request_total{server="$service", client!="$service", client!="user"}[$__range]) > 0), "id", "$1", "client", "(.*)")'
-                      ' or '
-                      'label_replace(sum by (server) (rate(traces_service_graph_request_total{server="$service"}[$__range]) > 0), "id", "$1", "server", "(.*)")'
-                      ')', "A"),
+            table_tgt('sum by (id, title) ('
+                      + _named('sum by (server) (rate(traces_service_graph_request_total{client="$service", server!="$service"}[$__range]) > 0)', 'server')
+                      + ' or '
+                      + _named('sum by (client) (rate(traces_service_graph_request_total{server="$service", client!="$service", client!="user"}[$__range]) > 0)', 'client')
+                      + ' or '
+                      + _named('sum by (server) (rate(traces_service_graph_request_total{server="$service"}[$__range]) > 0)', 'server')
+                      + ')', "A"),
             table_tgt('label_join(label_replace(label_replace('
                       '(sum by (client, server) (rate(traces_service_graph_request_total{client="$service", server!="$service"}[$__range]) > 0)'
                       ' or '

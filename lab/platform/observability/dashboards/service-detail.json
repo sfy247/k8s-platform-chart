@@ -348,7 +348,7 @@
             "uid": "${ds_prom}"
           },
           "editorMode": "code",
-          "expr": "sum by (id) (label_replace(sum by (server) (rate(traces_service_graph_request_total{client=\"$service\", server!=\"$service\"}[$__range]) > 0), \"id\", \"$1\", \"server\", \"(.*)\") or label_replace(sum by (client) (rate(traces_service_graph_request_total{server=\"$service\", client!=\"$service\", client!=\"user\"}[$__range]) > 0), \"id\", \"$1\", \"client\", \"(.*)\") or label_replace(sum by (server) (rate(traces_service_graph_request_total{server=\"$service\"}[$__range]) > 0), \"id\", \"$1\", \"server\", \"(.*)\"))",
+          "expr": "sum by (id, title) (label_replace(label_replace(sum by (server) (rate(traces_service_graph_request_total{client=\"$service\", server!=\"$service\"}[$__range]) > 0), \"id\", \"$1\", \"server\", \"(.*)\"), \"title\", \"$1\", \"server\", \"(.*)\") or label_replace(label_replace(sum by (client) (rate(traces_service_graph_request_total{server=\"$service\", client!=\"$service\", client!=\"user\"}[$__range]) > 0), \"id\", \"$1\", \"client\", \"(.*)\"), \"title\", \"$1\", \"client\", \"(.*)\") or label_replace(label_replace(sum by (server) (rate(traces_service_graph_request_total{server=\"$service\"}[$__range]) > 0), \"id\", \"$1\", \"server\", \"(.*)\"), \"title\", \"$1\", \"server\", \"(.*)\"))",
           "legendFormat": "",
           "range": false,
           "instant": true,

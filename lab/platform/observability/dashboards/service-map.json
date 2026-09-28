@@ -63,7 +63,7 @@
             "uid": "${ds_prom}"
           },
           "editorMode": "code",
-          "expr": "sum by (id) (label_replace(sum by (client, server) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range]) > 0) unless on (client, server) label_replace(sum by (client) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range])), \"server\", \"$1\", \"client\", \"(.*)\"), \"id\", \"$1\", \"server\", \"(.*)\") or label_replace(sum by (client, server) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range]) > 0) unless on (client, server) label_replace(sum by (client) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range])), \"server\", \"$1\", \"client\", \"(.*)\"), \"id\", \"$1\", \"client\", \"(.*)\"))",
+          "expr": "sum by (id, title) (label_replace(label_replace(sum by (client, server) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range]) > 0) unless on (client, server) label_replace(sum by (client) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range])), \"server\", \"$1\", \"client\", \"(.*)\"), \"id\", \"$1\", \"server\", \"(.*)\"), \"title\", \"$1\", \"server\", \"(.*)\") or label_replace(label_replace(sum by (client, server) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range]) > 0) unless on (client, server) label_replace(sum by (client) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range])), \"server\", \"$1\", \"client\", \"(.*)\"), \"id\", \"$1\", \"client\", \"(.*)\"), \"title\", \"$1\", \"client\", \"(.*)\"))",
           "legendFormat": "",
           "range": false,
           "instant": true,
