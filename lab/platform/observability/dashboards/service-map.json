@@ -106,7 +106,25 @@
           "unit": "reqps",
           "decimals": 2
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "id"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open ${__data.fields.id} \u2014 flow, dependencies and traces",
+                    "url": "/d/lab-service-detail/service-detail?var-service=${__data.fields.id}&from=${__from}&to=${__to}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "nodes": {

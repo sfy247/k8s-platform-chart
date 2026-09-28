@@ -53,6 +53,12 @@ configMapGenerator:
     options:
       labels: {grafana_dashboard: "1"}
       annotations: {grafana_folder: Lab}
+  - name: grafana-dashboard-service-detail
+    files:
+      - service-detail.json=dashboards/service-detail.json
+    options:
+      labels: {grafana_dashboard: "1"}
+      annotations: {grafana_folder: Lab}
 
 generatorOptions:
   # Stable names: the sidecar tracks ConfigMaps, and a hash suffix would

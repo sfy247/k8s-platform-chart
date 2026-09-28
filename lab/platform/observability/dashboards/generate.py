@@ -767,7 +767,14 @@ def node_graph(title, x, y, w=24, h=14, desc=""):
                                   "__metrics_gen_instance": True},
                 "renameByName": {"Value": "mainstat"}}},
         ],
-        "fieldConfig": {"defaults": {"unit": "reqps", "decimals": 2}, "overrides": []},
+        "fieldConfig": {"defaults": {"unit": "reqps", "decimals": 2}, "overrides": [
+            # Clicking a node opens that service's flow. Node graph shows data
+            # links in the context menu; the link lives on the node's id field.
+            {"matcher": {"id": "byName", "options": "id"},
+             "properties": [{"id": "links", "value": [{
+                 "title": "Open ${__data.fields.id} — flow, dependencies and traces",
+                 "url": "/d/lab-service-detail/service-detail?var-service=${__data.fields.id}&from=${__from}&to=${__to}"}]}]},
+        ]},
         "options": {"nodes": {"mainStatUnit": "req/s"}, "edges": {"mainStatUnit": "req/s"}},
     }
 
@@ -838,6 +845,120 @@ def service_map() -> dict:
         ])
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# 7. Service Detail — one app: who calls it, what it calls, and its traces
+# ══════════════════════════════════════════════════════════════════════════
+def traces_panel(title, query, x, y, w=24, h=11, desc=""):
+    """Tempo traces. A row opens the trace view: every span, every hop."""
+    return {
+        "type": "table", "title": title, "description": desc,
+        "gridPos": {"h": h, "w": w, "x": x, "y": y},
+        "datasource": {"type": "tempo", "uid": "${ds_tempo}"},
+        "targets": [{"datasource": {"type": "tempo", "uid": "${ds_tempo}"},
+                     "queryType": "traceql", "query": query, "limit": 50, "refId": "A"}],
+        "options": {"showHeader": True},
+    }
+
+
+def service_detail() -> dict:
+    p = []
+    inbound = 'traces_service_graph_request_total{server="$service"}'
+    outbound = 'traces_service_graph_request_total{client="$service"}'
+    failed_in = 'traces_service_graph_request_failed_total{server="$service"}'
+
+    p.append(row("$service", 0))
+    p.append(stat("Requests per second", f"sum(rate({inbound}[$__rate_interval]))", "reqps", 0, 1, w=6,
+                  desc="Inbound, measured from spans."))
+    p.append(stat("Error rate",
+                  f"100 * sum(rate({failed_in}[$__rate_interval])) / clamp_min(sum(rate({inbound}[$__rate_interval])), 0.00001)",
+                  "percent", 6, 1, w=6, thresholds=steps(("green", None), ("orange", 1), ("red", 5))))
+    p.append(stat("p95 latency",
+                  f"histogram_quantile(0.95, sum by (le) (rate(traces_service_graph_request_server_seconds_bucket{{server=\"$service\"}}[$__rate_interval])))",
+                  "s", 12, 1, w=6))
+    p.append(stat("Depends on",
+                  f'count(count by (server) (rate({outbound}[$__rate_interval]) > 0))',
+                  "short", 18, 1, w=6, no_value="0", desc="Services this one calls in the window."))
+
+    p.append(row("Flow", 5))
+    p.append({
+        "type": "nodeGraph", "title": "One hop around $service",
+        "description": "Callers on the left, dependencies on the right. Click another node to walk the graph.",
+        "gridPos": {"h": 12, "w": 24, "x": 0, "y": 6},
+        "datasource": {"type": "prometheus", "uid": PROM},
+        "targets": [
+            table_tgt('sum by (id) ('
+                      'label_replace(sum by (server) (rate(traces_service_graph_request_total{client="$service", server!="$service"}[$__range]) > 0), "id", "$1", "server", "(.*)")'
+                      ' or '
+                      'label_replace(sum by (client) (rate(traces_service_graph_request_total{server="$service", client!="$service", client!="user"}[$__range]) > 0), "id", "$1", "client", "(.*)")'
+                      ' or '
+                      'label_replace(sum by (server) (rate(traces_service_graph_request_total{server="$service"}[$__range]) > 0), "id", "$1", "server", "(.*)")'
+                      ')', "A"),
+            table_tgt('label_join(label_replace(label_replace('
+                      '(sum by (client, server) (rate(traces_service_graph_request_total{client="$service", server!="$service"}[$__range]) > 0)'
+                      ' or '
+                      'sum by (client, server) (rate(traces_service_graph_request_total{server="$service", client!="$service", client!="user"}[$__range]) > 0))'
+                      ', "source", "$1", "client", "(.*)"), "target", "$1", "server", "(.*)")'
+                      ', "id", " → ", "source", "target")', "B"),
+        ],
+        "transformations": [
+            {"id": "organize", "options": {
+                "excludeByName": {"Time": True, "client": True, "server": True, "connection_type": True,
+                                  "__metrics_gen_instance": True, "keep": True},
+                "renameByName": {"Value": "mainstat"}}},
+        ],
+        "fieldConfig": {"defaults": {"unit": "reqps", "decimals": 2}, "overrides": [
+            {"matcher": {"id": "byName", "options": "id"},
+             "properties": [{"id": "links", "value": [{
+                 "title": "Open ${__data.fields.id}",
+                 "url": "/d/lab-service-detail/service-detail?var-service=${__data.fields.id}&from=${__from}&to=${__to}"}]}]},
+        ]},
+        "options": {"nodes": {"mainStatUnit": "req/s"}, "edges": {"mainStatUnit": "req/s"}},
+    })
+
+    def pair_table(title, expr_prefix, label, x, y):
+        return table(title, [
+            tgt(f"sum by ({label}) (rate(traces_service_graph_request_total{{{expr_prefix}}}[$__rate_interval]))", "", "A", instant=True),
+            tgt(f"sum by ({label}) (rate(traces_service_graph_request_failed_total{{{expr_prefix}}}[$__rate_interval]))", "", "B", instant=True),
+            tgt(f"histogram_quantile(0.95, sum by ({label}, le) (rate(traces_service_graph_request_server_seconds_bucket{{{expr_prefix}}}[$__rate_interval])))", "", "C", instant=True),
+        ], x, y, w=12, h=8,
+            transforms=[{"id": "merge", "options": {}},
+                        {"id": "organize", "options": {"renameByName": {
+                            label: "Service", "Value #A": "req/s", "Value #B": "errors/s", "Value #C": "p95 (s)"}}}])
+
+    p.append(pair_table("Called by", 'server="$service", client!="user"', "client", 0, 18))
+    p.append(pair_table("Calls", 'client="$service"', "server", 12, 18))
+
+    p.append(row("Traces — the actual flow, hop by hop", 26))
+    p.append(traces_panel(
+        "Recent traces through $service", '{resource.service.name="$service"}', 0, 27,
+        desc="Click a row to open the trace: every span in order, across every service and database it touched, "
+             "with the time spent in each."))
+
+    p.append(row("Logs", 38))
+    p.append(logs_panel("Logs for $service", '{app=~"$service.*"} | line_format "{{.severity}} {{.__line__}}"', 0, 39, h=10,
+                        desc="Matched on the app label Alloy sets from app.kubernetes.io/instance; a service whose "
+                             "eBPF name differs from that label will show nothing here."))
+
+    return dashboard(
+        "lab-service-detail", "Service Detail",
+        "One service: who calls it, what it depends on, its traces and its logs. "
+        "Opened by clicking a node on the Service Map.",
+        ["lab", "platform", "traces"], p,
+        templating=[
+            {"name": "ds_prom", "label": "Metrics source", "type": "datasource",
+             "query": "prometheus", "current": {}, "hide": 0, "refresh": 1},
+            {"name": "ds_tempo", "label": "Traces source", "type": "datasource",
+             "query": "tempo", "current": {}, "hide": 0, "refresh": 1},
+            {"name": "ds_loki", "label": "Logs source", "type": "datasource",
+             "query": "loki", "current": {}, "hide": 0, "refresh": 1},
+            {"name": "service", "label": "Service", "type": "query",
+             "datasource": {"type": "prometheus", "uid": PROM},
+             "query": {"query": "label_values(traces_service_graph_request_total, server)", "refId": "service"},
+             "refresh": 1, "sort": 1, "current": {}, "includeAll": False, "multi": False},
+        ])
+
+
+
 if __name__ == "__main__":
     print("generating dashboards:")
     write(cluster_overview(), "cluster-overview.json")
@@ -846,3 +967,4 @@ if __name__ == "__main__":
     write(postgres(), "postgres.json")
     write(trading_agent(), "trading-agent.json")
     write(service_map(), "service-map.json")
+    write(service_detail(), "service-detail.json")
