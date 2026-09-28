@@ -43,15 +43,25 @@ tempo:
         # gets dropped here instead of taking Tempo down with it.
         max_active_series: 20000
 
-  # Measured, not guessed: 1Gi was not enough once the generator had been
-  # running for an hour, and the pod was OOM-killed. Tempo holds recent
-  # traces plus the generator's series in memory.
+  # The chart allocates a 1 GiB memory ballast by default — a pre-Go-1.19
+  # trick to keep the garbage collector from running too eagerly. It shows up
+  # as a single 1073.7 MB live allocation, pushes the GC target past 2.3 GB,
+  # and the container hits its memory limit before a collection ever happens.
+  # Two OOM kills came from this, not from the span volume, which is ~5/s.
+  memBallastSizeMbs: 0
+
+  # The cgroup-aware replacement: tell the Go runtime the ceiling and it
+  # collects to stay under it, instead of guessing from a ballast.
+  extraEnv:
+    - name: GOMEMLIMIT
+      value: "1500MiB"
+
   resources:
     requests:
       cpu: 200m
-      memory: 512Mi
+      memory: 256Mi
     limits:
-      memory: 3Gi
+      memory: 2Gi
 
 # Traces on disk. Small: 48h of a lab's traffic is megabytes, and losing
 # them costs nothing that Prometheus and Loki do not already hold.
