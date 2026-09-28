@@ -1,7 +1,7 @@
 {
   "uid": "lab-service-map",
   "title": "Service Map",
-  "description": "Who calls whom in the cluster. Built from eBPF spans (Alloy/Beyla) \u2192 Tempo \u2192 service-graph metrics, so apps appear without being instrumented.",
+  "description": "Who calls whom in the cluster. Built from eBPF spans (Alloy/Beyla) \u2192 Tempo \u2192 service-graph metrics in Prometheus, so apps appear without being instrumented. For traces behind an edge, open Explore \u2192 Tempo.",
   "tags": [
     "lab",
     "platform",
@@ -26,15 +26,6 @@
         "current": {},
         "hide": 0,
         "refresh": 1
-      },
-      {
-        "name": "ds_tempo",
-        "label": "Traces source",
-        "type": "datasource",
-        "query": "tempo",
-        "current": {},
-        "hide": 0,
-        "refresh": 1
       }
     ]
   },
@@ -54,31 +45,66 @@
     {
       "type": "nodeGraph",
       "title": "Service map",
-      "description": "Every edge is real traffic seen by eBPF: request rate on the node, error rate in red. Click a node for its traces.",
+      "description": "Every edge is real traffic seen by eBPF, in requests per second. Services that only call (like an outside user) appear as nodes too.",
       "gridPos": {
-        "h": 13,
+        "h": 14,
         "w": 24,
         "x": 0,
         "y": 1
       },
       "datasource": {
-        "type": "tempo",
-        "uid": "${ds_tempo}"
+        "type": "prometheus",
+        "uid": "${ds_prom}"
       },
       "targets": [
         {
           "datasource": {
-            "type": "tempo",
-            "uid": "${ds_tempo}"
+            "type": "prometheus",
+            "uid": "${ds_prom}"
           },
-          "queryType": "serviceMap",
-          "refId": "A"
+          "editorMode": "code",
+          "expr": "sum by (id) (label_replace(sum by (server) (rate(traces_service_graph_request_total[$__range])), \"id\", \"$1\", \"server\", \"(.*)\") or label_replace(sum by (client) (rate(traces_service_graph_request_total[$__range])), \"id\", \"$1\", \"client\", \"(.*)\"))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A",
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds_prom}"
+          },
+          "editorMode": "code",
+          "expr": "label_join(label_replace(label_replace(sum by (client, server) (rate(traces_service_graph_request_total[$__range])), \"source\", \"$1\", \"client\", \"(.*)\"), \"target\", \"$1\", \"server\", \"(.*)\"), \"id\", \"->\", \"source\", \"target\")",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "B",
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "client": true,
+              "server": true
+            },
+            "renameByName": {
+              "Value": "mainstat"
+            }
+          }
         }
       ],
       "options": {
         "nodes": {
-          "mainStatUnit": "req/s",
-          "secondaryStatUnit": "ms"
+          "mainStatUnit": "req/s"
+        },
+        "edges": {
+          "mainStatUnit": "req/s"
         }
       }
     },

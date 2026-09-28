@@ -719,18 +719,42 @@ def trading_agent() -> dict:
 # ══════════════════════════════════════════════════════════════════════════
 # 6. Service Map — who calls whom, how often, and how badly
 # ══════════════════════════════════════════════════════════════════════════
-TEMPO = "${ds_tempo}"
+# The Tempo datasource has no serviceMap query type in Grafana 13 — the
+# Service Graph is an Explore-only view built client-side. A dashboard draws
+# the same picture straight from the metrics Tempo's generator writes, shaped
+# into what the node graph panel expects: a nodes frame keyed by `id`, and an
+# edges frame with `id`, `source` and `target`. PromQL's label_replace and
+# label_join do the shaping.
+EDGES = ('label_join(label_replace(label_replace('
+         'sum by (client, server) (rate(traces_service_graph_request_total[$__range]))'
+         ', "source", "$1", "client", "(.*)"), "target", "$1", "server", "(.*)")'
+         ', "id", "->", "source", "target")')
+
+NODES = ('sum by (id) ('
+         'label_replace(sum by (server) (rate(traces_service_graph_request_total[$__range])), "id", "$1", "server", "(.*)")'
+         ' or '
+         'label_replace(sum by (client) (rate(traces_service_graph_request_total[$__range])), "id", "$1", "client", "(.*)")'
+         ')')
 
 
-def node_graph(title, x, y, w=24, h=13, desc=""):
-    """Grafana draws this from Tempo's service-graph metrics in Prometheus."""
+def table_tgt(expr: str, ref: str) -> dict:
+    t = tgt(expr, "", ref, instant=True)
+    t["format"] = "table"
+    return t
+
+
+def node_graph(title, x, y, w=24, h=14, desc=""):
     return {
         "type": "nodeGraph", "title": title, "description": desc,
         "gridPos": {"h": h, "w": w, "x": x, "y": y},
-        "datasource": {"type": "tempo", "uid": TEMPO},
-        "targets": [{"datasource": {"type": "tempo", "uid": TEMPO},
-                     "queryType": "serviceMap", "refId": "A"}],
-        "options": {"nodes": {"mainStatUnit": "req/s", "secondaryStatUnit": "ms"}},
+        "datasource": {"type": "prometheus", "uid": PROM},
+        "targets": [table_tgt(NODES, "A"), table_tgt(EDGES, "B")],
+        "transformations": [
+            {"id": "organize", "options": {
+                "excludeByName": {"Time": True, "client": True, "server": True},
+                "renameByName": {"Value": "mainstat"}}},
+        ],
+        "options": {"nodes": {"mainStatUnit": "req/s"}, "edges": {"mainStatUnit": "req/s"}},
     }
 
 
@@ -740,8 +764,8 @@ def service_map() -> dict:
     p.append(row("Map", 0))
     p.append(node_graph(
         "Service map", 0, 1,
-        desc="Every edge is real traffic seen by eBPF: request rate on the node, "
-             "error rate in red. Click a node for its traces."))
+        desc="Every edge is real traffic seen by eBPF, in requests per second. "
+             "Services that only call (like an outside user) appear as nodes too."))
 
     p.append(row("Traffic between services", 14))
     edges = [
@@ -782,13 +806,12 @@ def service_map() -> dict:
     return dashboard(
         "lab-service-map", "Service Map",
         "Who calls whom in the cluster. Built from eBPF spans (Alloy/Beyla) → Tempo → "
-        "service-graph metrics, so apps appear without being instrumented.",
+        "service-graph metrics in Prometheus, so apps appear without being instrumented. "
+        "For traces behind an edge, open Explore → Tempo.",
         ["lab", "platform", "traces"], p,
         templating=[
             {"name": "ds_prom", "label": "Metrics source", "type": "datasource",
              "query": "prometheus", "current": {}, "hide": 0, "refresh": 1},
-            {"name": "ds_tempo", "label": "Traces source", "type": "datasource",
-             "query": "tempo", "current": {}, "hide": 0, "refresh": 1},
         ])
 
 
