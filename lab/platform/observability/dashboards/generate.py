@@ -721,19 +721,31 @@ def trading_agent() -> dict:
 # ══════════════════════════════════════════════════════════════════════════
 # The Tempo datasource has no serviceMap query type in Grafana 13 — the
 # Service Graph is an Explore-only view built client-side. A dashboard draws
-# the same picture straight from the metrics Tempo's generator writes, shaped
-# into what the node graph panel expects: a nodes frame keyed by `id`, and an
-# edges frame with `id`, `source` and `target`. PromQL's label_replace and
-# label_join do the shaping.
+# the same picture straight from the generator's metrics, shaped into what
+# the node graph panel expects: a nodes frame keyed by `id`, and an edges
+# frame with `id`, `source` and `target`. label_replace and label_join do it.
+#
+# Two exclusions keep the map readable:
+#   client="user"    eBPF cannot name the caller of a probe or a scrape, so
+#                    it invents one. Those edges are dropped at the collector
+#                    now, and excluded here too for older data.
+#   client == server a service whose components share a name (argocd-server
+#                    calling argocd-redis) would otherwise draw a self-loop.
+REAL = 'traces_service_graph_request_total{client!="user"}'
+
+# Same-name pairs (argocd-server calling argocd-redis) would draw a loop on
+# one node, so the map drops them; the table below still lists them.
+PAIRS = f'sum by (client, server) (rate({REAL}[$__range]) > 0) unless on (client, server) label_replace(sum by (client) (rate({REAL}[$__range])), "server", "$1", "client", "(.*)")'
+
 EDGES = ('label_join(label_replace(label_replace('
-         'sum by (client, server) (rate(traces_service_graph_request_total[$__range]))'
+         f'{PAIRS}'
          ', "source", "$1", "client", "(.*)"), "target", "$1", "server", "(.*)")'
-         ', "id", "->", "source", "target")')
+         ', "id", " → ", "source", "target")')
 
 NODES = ('sum by (id) ('
-         'label_replace(sum by (server) (rate(traces_service_graph_request_total[$__range])), "id", "$1", "server", "(.*)")'
+         f'label_replace({PAIRS}, "id", "$1", "server", "(.*)")'
          ' or '
-         'label_replace(sum by (client) (rate(traces_service_graph_request_total[$__range])), "id", "$1", "client", "(.*)")'
+         f'label_replace({PAIRS}, "id", "$1", "client", "(.*)")'
          ')')
 
 
@@ -751,9 +763,11 @@ def node_graph(title, x, y, w=24, h=14, desc=""):
         "targets": [table_tgt(NODES, "A"), table_tgt(EDGES, "B")],
         "transformations": [
             {"id": "organize", "options": {
-                "excludeByName": {"Time": True, "client": True, "server": True},
+                "excludeByName": {"Time": True, "client": True, "server": True, "connection_type": True,
+                                  "__metrics_gen_instance": True},
                 "renameByName": {"Value": "mainstat"}}},
         ],
+        "fieldConfig": {"defaults": {"unit": "reqps", "decimals": 2}, "overrides": []},
         "options": {"nodes": {"mainStatUnit": "req/s"}, "edges": {"mainStatUnit": "req/s"}},
     }
 
@@ -763,57 +777,65 @@ def service_map() -> dict:
 
     p.append(row("Map", 0))
     p.append(node_graph(
-        "Service map", 0, 1,
-        desc="Every edge is real traffic seen by eBPF, in requests per second. "
-             "Services that only call (like an outside user) appear as nodes too."))
+        "Service map — who calls whom", 0, 1,
+        desc="Real service-to-service traffic seen by eBPF. Probes, scrapes and "
+             "self-calls are excluded; inbound traffic from outside the cluster is in the next panel."))
 
-    p.append(row("Traffic between services", 14))
+    p.append(row("Traffic", 15))
     edges = [
-        tgt("sum by (client, server) (rate(traces_service_graph_request_total[$__rate_interval]))",
-            "", "A", instant=True),
-        tgt("sum by (client, server) (rate(traces_service_graph_request_failed_total[$__rate_interval]))",
+        tgt(f"sum by (client, server) (rate({REAL}[$__rate_interval]))", "", "A", instant=True),
+        tgt(f'sum by (client, server) (rate(traces_service_graph_request_failed_total{{client!="user"}}[$__rate_interval]))',
             "", "B", instant=True),
         tgt("histogram_quantile(0.95, sum by (client, server, le) "
-            "(rate(traces_service_graph_request_server_seconds_bucket[$__rate_interval])))",
+            '(rate(traces_service_graph_request_server_seconds_bucket{client!="user"}[$__rate_interval])))',
             "", "C", instant=True),
     ]
     p.append(table(
-        "Caller → callee", edges, 0, 15, h=9,
-        desc="One row per pair of services that actually talked. Empty means no traffic in the window.",
+        "Caller → callee", edges, 0, 16, w=12, h=9,
+        desc="One row per pair of services that actually talked, in the dashboard's time range.",
         transforms=[
             {"id": "merge", "options": {}},
             {"id": "organize", "options": {"renameByName": {
                 "client": "Caller", "server": "Callee",
                 "Value #A": "req/s", "Value #B": "errors/s", "Value #C": "p95 (s)"}}},
         ]))
+    p.append(table(
+        "Inbound from outside the cluster", [
+            tgt('sum by (server) (rate(traces_service_graph_request_total{client="user"}[$__rate_interval]))', "", "A", instant=True)],
+        12, 16, w=12, h=9,
+        desc="Callers eBPF cannot name: browsers through the ingress, and anything else "
+             "reaching a pod directly. Health probes and metric scrapes are dropped before this point.",
+        transforms=[
+            {"id": "merge", "options": {}},
+            {"id": "organize", "options": {"renameByName": {"server": "Service", "Value": "req/s"}}},
+        ]))
 
-    p.append(row("Per service", 24))
+    p.append(row("Per service", 25))
     p.append(ts("Requests per second", [
-        tgt("sum by (server) (rate(traces_service_graph_request_total[$__rate_interval]))", "{{server}}")],
-        "reqps", 0, 25, desc="Inbound request rate per service, from spans rather than app metrics."))
+        tgt(f"sum by (server) (rate({REAL}[$__rate_interval]))", "{{server}}")],
+        "reqps", 0, 26, desc="Inbound request rate per service, from spans rather than app metrics."))
     p.append(ts("Failed requests per second", [
-        tgt("sum by (server) (rate(traces_service_graph_request_failed_total[$__rate_interval]))", "{{server}}")],
-        "reqps", 12, 25, desc="A flat zero here is the normal, healthy picture."))
+        tgt('sum by (server) (rate(traces_service_graph_request_failed_total{client!="user"}[$__rate_interval]))', "{{server}}")],
+        "reqps", 12, 26, desc="A flat zero here is the normal, healthy picture."))
     p.append(ts("p95 latency, server side", [
         tgt("histogram_quantile(0.95, sum by (server, le) "
-            "(rate(traces_service_graph_request_server_seconds_bucket[$__rate_interval])))", "{{server}}")],
-        "s", 0, 33, desc="Time the callee took, measured at the kernel — no app instrumentation involved."))
+            '(rate(traces_service_graph_request_server_seconds_bucket{client!="user"}[$__rate_interval])))', "{{server}}")],
+        "s", 0, 34, desc="Time the callee took, measured at the kernel — no app instrumentation involved."))
     p.append(ts("p95 latency, client side", [
         tgt("histogram_quantile(0.95, sum by (client, le) "
-            "(rate(traces_service_graph_request_client_seconds_bucket[$__rate_interval])))", "{{client}}")],
-        "s", 12, 33, desc="What the caller waited. Client far above server means the network or a queue."))
+            '(rate(traces_service_graph_request_client_seconds_bucket{client!="user"}[$__rate_interval])))', "{{client}}")],
+        "s", 12, 34, desc="What the caller waited. Client far above server means the network or a queue."))
 
     return dashboard(
         "lab-service-map", "Service Map",
         "Who calls whom in the cluster. Built from eBPF spans (Alloy/Beyla) → Tempo → "
         "service-graph metrics in Prometheus, so apps appear without being instrumented. "
-        "For traces behind an edge, open Explore → Tempo.",
+        "For the traces behind an edge, open Explore → Tempo.",
         ["lab", "platform", "traces"], p,
         templating=[
             {"name": "ds_prom", "label": "Metrics source", "type": "datasource",
              "query": "prometheus", "current": {}, "hide": 0, "refresh": 1},
         ])
-
 
 
 if __name__ == "__main__":

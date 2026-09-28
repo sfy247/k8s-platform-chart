@@ -1,7 +1,7 @@
 {
   "uid": "lab-service-map",
   "title": "Service Map",
-  "description": "Who calls whom in the cluster. Built from eBPF spans (Alloy/Beyla) \u2192 Tempo \u2192 service-graph metrics in Prometheus, so apps appear without being instrumented. For traces behind an edge, open Explore \u2192 Tempo.",
+  "description": "Who calls whom in the cluster. Built from eBPF spans (Alloy/Beyla) \u2192 Tempo \u2192 service-graph metrics in Prometheus, so apps appear without being instrumented. For the traces behind an edge, open Explore \u2192 Tempo.",
   "tags": [
     "lab",
     "platform",
@@ -44,8 +44,8 @@
     },
     {
       "type": "nodeGraph",
-      "title": "Service map",
-      "description": "Every edge is real traffic seen by eBPF, in requests per second. Services that only call (like an outside user) appear as nodes too.",
+      "title": "Service map \u2014 who calls whom",
+      "description": "Real service-to-service traffic seen by eBPF. Probes, scrapes and self-calls are excluded; inbound traffic from outside the cluster is in the next panel.",
       "gridPos": {
         "h": 14,
         "w": 24,
@@ -63,7 +63,7 @@
             "uid": "${ds_prom}"
           },
           "editorMode": "code",
-          "expr": "sum by (id) (label_replace(sum by (server) (rate(traces_service_graph_request_total[$__range])), \"id\", \"$1\", \"server\", \"(.*)\") or label_replace(sum by (client) (rate(traces_service_graph_request_total[$__range])), \"id\", \"$1\", \"client\", \"(.*)\"))",
+          "expr": "sum by (id) (label_replace(sum by (client, server) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range]) > 0) unless on (client, server) label_replace(sum by (client) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range])), \"server\", \"$1\", \"client\", \"(.*)\"), \"id\", \"$1\", \"server\", \"(.*)\") or label_replace(sum by (client, server) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range]) > 0) unless on (client, server) label_replace(sum by (client) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range])), \"server\", \"$1\", \"client\", \"(.*)\"), \"id\", \"$1\", \"client\", \"(.*)\"))",
           "legendFormat": "",
           "range": false,
           "instant": true,
@@ -76,7 +76,7 @@
             "uid": "${ds_prom}"
           },
           "editorMode": "code",
-          "expr": "label_join(label_replace(label_replace(sum by (client, server) (rate(traces_service_graph_request_total[$__range])), \"source\", \"$1\", \"client\", \"(.*)\"), \"target\", \"$1\", \"server\", \"(.*)\"), \"id\", \"->\", \"source\", \"target\")",
+          "expr": "label_join(label_replace(label_replace(sum by (client, server) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range]) > 0) unless on (client, server) label_replace(sum by (client) (rate(traces_service_graph_request_total{client!=\"user\"}[$__range])), \"server\", \"$1\", \"client\", \"(.*)\"), \"source\", \"$1\", \"client\", \"(.*)\"), \"target\", \"$1\", \"server\", \"(.*)\"), \"id\", \" \u2192 \", \"source\", \"target\")",
           "legendFormat": "",
           "range": false,
           "instant": true,
@@ -91,7 +91,9 @@
             "excludeByName": {
               "Time": true,
               "client": true,
-              "server": true
+              "server": true,
+              "connection_type": true,
+              "__metrics_gen_instance": true
             },
             "renameByName": {
               "Value": "mainstat"
@@ -99,6 +101,13 @@
           }
         }
       ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2
+        },
+        "overrides": []
+      },
       "options": {
         "nodes": {
           "mainStatUnit": "req/s"
@@ -110,12 +119,12 @@
     },
     {
       "type": "row",
-      "title": "Traffic between services",
+      "title": "Traffic",
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 14
+        "y": 15
       },
       "collapsed": false,
       "panels": []
@@ -123,12 +132,12 @@
     {
       "type": "table",
       "title": "Caller \u2192 callee",
-      "description": "One row per pair of services that actually talked. Empty means no traffic in the window.",
+      "description": "One row per pair of services that actually talked, in the dashboard's time range.",
       "gridPos": {
         "h": 9,
-        "w": 24,
+        "w": 12,
         "x": 0,
-        "y": 15
+        "y": 16
       },
       "datasource": {
         "type": "prometheus",
@@ -141,7 +150,7 @@
             "uid": "${ds_prom}"
           },
           "editorMode": "code",
-          "expr": "sum by (client, server) (rate(traces_service_graph_request_total[$__rate_interval]))",
+          "expr": "sum by (client, server) (rate(traces_service_graph_request_total{client!=\"user\"}[$__rate_interval]))",
           "legendFormat": "",
           "range": false,
           "instant": true,
@@ -153,7 +162,7 @@
             "uid": "${ds_prom}"
           },
           "editorMode": "code",
-          "expr": "sum by (client, server) (rate(traces_service_graph_request_failed_total[$__rate_interval]))",
+          "expr": "sum by (client, server) (rate(traces_service_graph_request_failed_total{client!=\"user\"}[$__rate_interval]))",
           "legendFormat": "",
           "range": false,
           "instant": true,
@@ -165,7 +174,7 @@
             "uid": "${ds_prom}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (client, server, le) (rate(traces_service_graph_request_server_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (client, server, le) (rate(traces_service_graph_request_server_seconds_bucket{client!=\"user\"}[$__rate_interval])))",
           "legendFormat": "",
           "range": false,
           "instant": true,
@@ -207,26 +216,14 @@
       }
     },
     {
-      "type": "row",
-      "title": "Per service",
+      "type": "table",
+      "title": "Inbound from outside the cluster",
+      "description": "Callers eBPF cannot name: browsers through the ingress, and anything else reaching a pod directly. Health probes and metric scrapes are dropped before this point.",
       "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 24
-      },
-      "collapsed": false,
-      "panels": []
-    },
-    {
-      "type": "timeseries",
-      "title": "Requests per second",
-      "description": "Inbound request rate per service, from spans rather than app metrics.",
-      "gridPos": {
-        "h": 8,
+        "h": 9,
         "w": 12,
-        "x": 0,
-        "y": 25
+        "x": 12,
+        "y": 16
       },
       "datasource": {
         "type": "prometheus",
@@ -239,7 +236,78 @@
             "uid": "${ds_prom}"
           },
           "editorMode": "code",
-          "expr": "sum by (server) (rate(traces_service_graph_request_total[$__rate_interval]))",
+          "expr": "sum by (server) (rate(traces_service_graph_request_total{client=\"user\"}[$__rate_interval]))",
+          "legendFormat": "",
+          "range": false,
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "server": "Service",
+              "Value": "req/s"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Per service",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests per second",
+      "description": "Inbound request rate per service, from spans rather than app metrics.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${ds_prom}"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${ds_prom}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (server) (rate(traces_service_graph_request_total{client!=\"user\"}[$__rate_interval]))",
           "legendFormat": "{{server}}",
           "range": true,
           "instant": false,
@@ -293,7 +361,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 25
+        "y": 26
       },
       "datasource": {
         "type": "prometheus",
@@ -306,7 +374,7 @@
             "uid": "${ds_prom}"
           },
           "editorMode": "code",
-          "expr": "sum by (server) (rate(traces_service_graph_request_failed_total[$__rate_interval]))",
+          "expr": "sum by (server) (rate(traces_service_graph_request_failed_total{client!=\"user\"}[$__rate_interval]))",
           "legendFormat": "{{server}}",
           "range": true,
           "instant": false,
@@ -360,7 +428,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 33
+        "y": 34
       },
       "datasource": {
         "type": "prometheus",
@@ -373,7 +441,7 @@
             "uid": "${ds_prom}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (server, le) (rate(traces_service_graph_request_server_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (server, le) (rate(traces_service_graph_request_server_seconds_bucket{client!=\"user\"}[$__rate_interval])))",
           "legendFormat": "{{server}}",
           "range": true,
           "instant": false,
@@ -427,7 +495,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 33
+        "y": 34
       },
       "datasource": {
         "type": "prometheus",
@@ -440,7 +508,7 @@
             "uid": "${ds_prom}"
           },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (client, le) (rate(traces_service_graph_request_client_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (client, le) (rate(traces_service_graph_request_client_seconds_bucket{client!=\"user\"}[$__rate_interval])))",
           "legendFormat": "{{client}}",
           "range": true,
           "instant": false,
