@@ -160,9 +160,13 @@ alloy:
       otelcol.processor.filter "noise" {
         error_mode = "ignore"
 
+        // Health endpoints are not flat: /health/live, /_floci/health and
+        // /health/ready all turned up in the lab. Match the health segment
+        // anywhere in the path, with an optional live/ready/startup suffix.
         traces {
           span = [
-            "IsMatch(attributes[\"url.path\"], \"^/(healthz|readyz|livez|alive|health|ready|metrics)$\")",
+            "IsMatch(attributes[\"url.path\"], \"(?i)^(/.*)?/(health|healthz|healthcheck|livez|readyz|alive|ping)(/(live|ready|startup))?/?$\")",
+            "IsMatch(attributes[\"url.path\"], \"^/(metrics|nginx_status|is-dynamic-lb-initialized)/?$\")",
             "IsMatch(attributes[\"url.path\"], \"^/-/(healthy|ready)$\")",
             "name == \"ping\"",
           ]
