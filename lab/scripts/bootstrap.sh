@@ -66,6 +66,13 @@ log "Applying the app ApplicationSet"
 kubectl apply -f "${BOOTSTRAP_DIR}/applicationset.yaml" >/dev/null
 ok "watching ${REPO_URL} (${REPO_REVISION}) for apps/*/app.yaml"
 
+# Applications whose manifests live in other repositories. Last, because
+# they expect the platform's CRDs and namespaces to exist — clippilot wants
+# CloudNativePG, learning-platform wants the ingress class.
+log "Applying the external ApplicationSet"
+kubectl apply -f "${BOOTSTRAP_DIR}/external-applicationset.yaml" >/dev/null
+ok "watching external/*/external-app.yaml for apps from other repositories"
+
 # ── Wait for the platform to converge ────────────────────────
 log "Waiting for ingress-nginx (Argo CD is installing it)"
 kubectl -n ingress-nginx rollout status deploy/ingress-nginx-controller --timeout=600s 2>/dev/null \

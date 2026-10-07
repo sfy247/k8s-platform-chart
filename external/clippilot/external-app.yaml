@@ -1,0 +1,21 @@
+# External application — the manifests live in another repository; only the
+# pointer lives here. Read by the lab-external ApplicationSet.
+# Keep it flat: Argo CD's git generator parses it directly.
+name: clippilot
+namespace: clippilot
+repo: git@github.com:sfy247/atmos-infra.git
+path: k8s/clippilot
+revision: main
+layer: platform
+retry: true
+syncOptions:
+  - CreateNamespace=true
+  - ServerSideApply=true
+  - SkipDryRunOnMissingResource=true
+# CloudNativePG writes to the Cluster status constantly; without this every
+# sync shows drift that no one can act on.
+ignoreDifferences:
+  - group: postgresql.cnpg.io
+    kind: Cluster
+    jsonPointers:
+      - /status
