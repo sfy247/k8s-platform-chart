@@ -1,0 +1,13 @@
+# External application — the manifests live in another repository; only the
+# pointer lives here. Read by the lab-external ApplicationSet.
+name: floci
+namespace: floci
+repo: git@github.com:sfy247/atmos-infra.git
+path: k8s/floci
+revision: main
+layer: platform
+retry: true
+syncOptions:
+  - CreateNamespace=true
+  - ServerSideApply=true
+  - SkipDryRunOnMissingResource=true

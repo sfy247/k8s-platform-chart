@@ -1,0 +1,90 @@
+# Applications whose manifests live in OTHER repositories.
+#
+# Why they are declared here at all: this repository is what `make recover`
+# rebuilds the lab from. Three apps were applied by hand, so a rebuild
+# brought the cluster back without them and nothing in git admitted they
+# were running. One pointer file each fixes both.
+#
+# The manifests still belong to their own repositories. Only the pointer —
+# repo, path, revision, namespace and sync behaviour — lives here.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: lab-external
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=zero"]
+
+  syncPolicy:
+    # Removing a pointer file, or deleting this ApplicationSet, leaves the
+    # running workloads alone. Deliberate: these are other people's
+    # applications, and a templating mistake here should not delete them.
+    preserveResourcesOnDeletion: true
+
+  generators:
+    - git:
+        repoURL: https://github.com/sfy247/k8s-platform-chart.git
+        revision: main
+        files:
+          - path: "external/*/external-app.yaml"
+
+  # Everything every external app shares. A plain template is parsed as YAML,
+  # so it cannot add or drop keys per app — the differences go in
+  # templatePatch below, which is rendered as text first.
+  template:
+    metadata:
+      name: '{{ .name }}'
+    spec:
+      project: default
+      source:
+        repoURL: '{{ .repo }}'
+        path: '{{ .path }}'
+        targetRevision: '{{ .revision }}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ .namespace }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+
+  # The parts that genuinely differ between the three, reproducing each
+  # Application exactly as it ran before being adopted.
+  templatePatch: |
+    {{- if or .cascadeDelete .layer }}
+    metadata:
+      {{- if .cascadeDelete }}
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+      {{- end }}
+      {{- if .layer }}
+      labels:
+        lab.sfy247.io/layer: '{{ .layer }}'
+      {{- end }}
+    {{- end }}
+    spec:
+      syncPolicy:
+        syncOptions:
+        {{- range .syncOptions }}
+          - {{ . }}
+        {{- end }}
+        {{- if .retry }}
+        retry:
+          limit: 10
+          backoff:
+            duration: 15s
+            factor: 2
+            maxDuration: 5m
+        {{- end }}
+    {{- if .ignoreDifferences }}
+      ignoreDifferences:
+      {{- range .ignoreDifferences }}
+        - group: {{ .group }}
+          kind: {{ .kind }}
+          jsonPointers:
+          {{- range .jsonPointers }}
+            - {{ . }}
+          {{- end }}
+      {{- end }}
+    {{- end }}

@@ -1,0 +1,17 @@
+# External application — the manifests live in another repository; only the
+# pointer lives here. Read by the lab-external ApplicationSet.
+name: learning-platform
+namespace: learning-platform
+repo: git@github.com:sfy247/devops-learning-platform.git
+path: deploy/k8s
+# Pinned to a commit, not a branch. This repository is not reviewed here, so
+# tracking master would let a push there deploy to this cluster unseen.
+# Bumping it is a reviewed change to this line.
+revision: 3ca8b5cbab6c4e41beeaf1551a905201e13ec132
+retry: false
+# Deleting this Application deletes its workloads. That was its existing
+# behaviour and it is kept; the ApplicationSet's preserveResourcesOnDeletion
+# protects against the set itself removing it.
+cascadeDelete: true
+syncOptions:
+  - CreateNamespace=true
