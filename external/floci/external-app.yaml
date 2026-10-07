@@ -3,7 +3,9 @@
 name: floci
 namespace: floci
 repo: git@github.com:sfy247/atmos-infra.git
-path: k8s/floci
+# Named sourcePath, not path: a git files generator reserves `.path` for an
+# object describing this descriptor file, which silently shadows it.
+sourcePath: k8s/floci
 revision: main
 layer: platform
 retry: true

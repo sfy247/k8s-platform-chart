@@ -4,7 +4,9 @@
 name: clippilot
 namespace: clippilot
 repo: git@github.com:sfy247/atmos-infra.git
-path: k8s/clippilot
+# Named sourcePath, not path: a git files generator reserves `.path` for an
+# object describing this descriptor file, which silently shadows it.
+sourcePath: k8s/clippilot
 revision: main
 layer: platform
 retry: true

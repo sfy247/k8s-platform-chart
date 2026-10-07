@@ -3,7 +3,9 @@
 name: learning-platform
 namespace: learning-platform
 repo: git@github.com:sfy247/devops-learning-platform.git
-path: deploy/k8s
+# Named sourcePath, not path: a git files generator reserves `.path` for an
+# object describing this descriptor file, which silently shadows it.
+sourcePath: deploy/k8s
 # Pinned to a commit, not a branch. This repository is not reviewed here, so
 # tracking master would let a push there deploy to this cluster unseen.
 # Bumping it is a reviewed change to this line.

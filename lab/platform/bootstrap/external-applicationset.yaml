@@ -39,7 +39,8 @@ spec:
       project: default
       source:
         repoURL: '{{ .repo }}'
-        path: '{{ .path }}'
+        # .path is the generator's own object for this file — hence sourcePath.
+        path: '{{ .sourcePath }}'
         targetRevision: '{{ .revision }}'
       destination:
         server: https://kubernetes.default.svc
